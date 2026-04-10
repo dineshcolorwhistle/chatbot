@@ -6,6 +6,8 @@ Initializes the FastAPI app with:
   - Lifespan handler for startup/shutdown events
   - Health check endpoint
   - LLM provider health verification on startup
+  - Orchestrator initialization with all agents
+  - Chat API routes
 """
 
 import logging
@@ -16,6 +18,9 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from config import app_config
 from providers.factory import create_llm_provider
+from services.orchestrator import Orchestrator
+from services.memory_store import session_store
+from routes.chat import router as chat_router
 
 # Configure logging
 logging.basicConfig(
@@ -26,9 +31,6 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
-# LLM provider — initialized at startup
-llm_provider = None
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -37,11 +39,10 @@ async def lifespan(app: FastAPI):
     Startup:
       - Initialize the LLM provider
       - Run health check to verify connectivity
+      - Initialize the Orchestrator with all agents
     Shutdown:
       - Cleanup resources
     """
-    global llm_provider
-
     logger.info("=" * 60)
     logger.info("Starting AI Agentic Chatbot Backend")
     logger.info("=" * 60)
@@ -53,12 +54,20 @@ async def lifespan(app: FastAPI):
     # Health check
     is_healthy = await llm_provider.health_check()
     if is_healthy:
-        logger.info("✅ LLM provider is healthy and ready")
+        logger.info("LLM provider is healthy and ready")
     else:
         logger.warning(
-            "⚠️  LLM provider health check failed. "
+            "LLM provider health check failed. "
             "The application will start but LLM calls may fail."
         )
+
+    # Initialize Orchestrator (coordinates all agents)
+    orchestrator = Orchestrator(
+        llm_provider=llm_provider,
+        session_store=session_store,
+    )
+    app.state.orchestrator = orchestrator
+    logger.info("Orchestrator initialized with all agents")
 
     logger.info("Backend is ready — listening on %s:%s", app_config.host, app_config.port)
     logger.info("=" * 60)
@@ -85,6 +94,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Include chat routes
+app.include_router(chat_router)
 
 
 # --- Health & Status Endpoints ---

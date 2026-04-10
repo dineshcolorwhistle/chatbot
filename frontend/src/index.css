@@ -1,0 +1,126 @@
+/* ============================================
+   Global Design System — Dark Theme
+   ============================================
+   
+   A premium dark theme with vibrant accent colors,
+   smooth gradients, and modern aesthetics.
+   ============================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+/* ---- CSS Custom Properties (Design Tokens) ---- */
+
+:root {
+  /* Backgrounds */
+  --bg-primary: #0d0f14;
+  --bg-secondary: #13161d;
+  --bg-header: rgba(13, 15, 20, 0.85);
+  --bg-input: #1a1d26;
+  --bg-button: #1a1d26;
+  --bg-button-hover: #22262f;
+  --bg-bubble-bot: #1a1d26;
+
+  /* Text Colors */
+  --text-primary: #e8eaf0;
+  --text-secondary: #b0b5c3;
+  --text-tertiary: #6e7489;
+  --text-dimmed: #4a4f5e;
+
+  /* Borders */
+  --border-subtle: rgba(255, 255, 255, 0.06);
+  --border-hover: rgba(255, 255, 255, 0.12);
+
+  /* Accent (Blue-Violet) */
+  --accent-color: #6c5ce7;
+  --accent-bg: rgba(108, 92, 231, 0.12);
+  --accent-border: rgba(108, 92, 231, 0.3);
+  --accent-glow: rgba(108, 92, 231, 0.15);
+
+  /* Success */
+  --success-color: #00d2a0;
+
+  /* Error */
+  --error-bg: rgba(255, 71, 87, 0.1);
+  --error-color: #ff4757;
+
+  /* Gradients */
+  --gradient-primary: linear-gradient(135deg, #6c5ce7 0%, #a855f7 100%);
+  --gradient-user: linear-gradient(135deg, #3b82f6 0%, #6c5ce7 100%);
+  --gradient-user-bubble: linear-gradient(135deg, #6c5ce7 0%, #8b5cf6 100%);
+  --gradient-send: linear-gradient(135deg, #6c5ce7 0%, #8b5cf6 100%);
+
+  /* Shadows */
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.2);
+  --shadow-glow: 0 4px 16px rgba(108, 92, 231, 0.25);
+  --shadow-user-bubble: 0 2px 12px rgba(108, 92, 231, 0.2);
+}
+
+/* ---- Global Reset ---- */
+
+*,
+*::before,
+*::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html {
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  line-height: 1.5;
+  min-height: 100vh;
+  overflow: hidden;
+}
+
+#root {
+  height: 100vh;
+}
+
+/* ---- Page Layout ---- */
+
+.chat-page {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ---- Selection Styling ---- */
+
+::selection {
+  background: rgba(108, 92, 231, 0.3);
+  color: #fff;
+}
+
+/* ---- Scrollbar Global ---- */
+
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* ---- Focus Styles ---- */
+
+:focus-visible {
+  outline: 2px solid var(--accent-color);
+  outline-offset: 2px;
+}
