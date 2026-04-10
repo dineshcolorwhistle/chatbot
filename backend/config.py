@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from dotenv import load_dotenv
 
 # Load .env from the backend directory
-load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
+load_dotenv(os.path.join(os.path.dirname(__file__), ".env"), override=True)
 
 
 @dataclass(frozen=True)

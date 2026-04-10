@@ -194,7 +194,7 @@ export default function ChatWindow() {
       <header className="chat-header">
         <div className="chat-header-left">
           <div className="chat-logo">
-            <span className="logo-icon">🤖</span>
+            <img src="/logo.svg" alt="ColorWhistle Logo" className="logo-icon" />
             <div className="logo-text">
               <h1>ColorWhistle</h1>
               <span className="subtitle">AI Project Consultant</span>

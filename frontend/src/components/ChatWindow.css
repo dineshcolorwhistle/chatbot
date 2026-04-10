@@ -47,9 +47,6 @@
   justify-content: center;
   width: 44px;
   height: 44px;
-  background: var(--gradient-primary);
-  border-radius: 12px;
-  box-shadow: var(--shadow-glow);
 }
 
 .logo-text h1 {
