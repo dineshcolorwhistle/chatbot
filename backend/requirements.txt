@@ -1,0 +1,15 @@
+# Backend Dependencies
+# ==================
+
+# Web framework
+fastapi==0.115.12
+uvicorn[standard]==0.34.2
+
+# Environment configuration
+python-dotenv==1.1.0
+
+# HTTP client (for LLM provider calls)
+httpx==0.28.1
+
+# Data validation
+pydantic==2.11.1
