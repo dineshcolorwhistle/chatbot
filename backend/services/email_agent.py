@@ -122,16 +122,16 @@ class EmailAgent:
     def __init__(
         self,
         llm_provider: LLMProvider,
-        admin_email: str = "admin@colorwhistle.com",
+        admin_emails: list[str] = None,
     ) -> None:
         """Initialize the Email Agent.
 
         Args:
             llm_provider: The LLM provider to use for email composition.
-            admin_email: Admin email address for lead notifications.
+            admin_emails: List of admin email addresses for lead notifications.
         """
         self._llm = llm_provider
-        self._admin_email = admin_email
+        self._admin_emails = admin_emails or ["admin@colorwhistle.com"]
 
     async def compose_and_send(self, session: Session) -> EmailResult:
         """Compose both emails and mock-send them.
@@ -256,7 +256,7 @@ class EmailAgent:
         user_name = session.collected_data.personal_info.name or "Unknown"
 
         return ComposedEmail(
-            to=self._admin_email,
+            to=", ".join(self._admin_emails),
             subject=f"🔔 New Lead: {user_name} — Project Inquiry",
             body=body,
             email_type="admin_notification",
@@ -462,7 +462,7 @@ class EmailAgent:
         name = data.personal_info.name or "Unknown"
 
         return ComposedEmail(
-            to=self._admin_email,
+            to=", ".join(self._admin_emails),
             subject=f"🔔 New Lead: {name} — Project Inquiry",
             body=body,
             email_type="admin_notification",

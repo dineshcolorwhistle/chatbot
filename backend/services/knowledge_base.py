@@ -346,23 +346,23 @@ class KnowledgeBase:
         if not results:
             return ""
 
+        # Filter to only include reasonably relevant results
+        good_results = [r for r in results if r.score >= 0.5]
+
+        if not good_results:
+            return ""
+
         context_parts: list[str] = [
-            "\n--- COMPANY KNOWLEDGE BASE (use this to answer questions about ColorWhistle) ---"
+            "\nCOMPANY KNOWLEDGE BASE:"
         ]
 
-        for i, result in enumerate(results, 1):
-            context_parts.append(
-                f"\n[Source: {result.source} | Relevance: {result.score:.2f}]\n"
-                f"{result.text}"
-            )
+        for i, result in enumerate(good_results, 1):
+            context_parts.append(f"\n{result.text}")
 
         context_parts.append(
-            "\n--- END OF KNOWLEDGE BASE ---\n"
-            "IMPORTANT: When the user asks questions about the company, services, "
-            "pricing, or related topics, USE the above knowledge base information "
-            "to provide accurate answers. Do not make up information — if the answer "
-            "is not in the knowledge base, say you're not sure and suggest they "
-            "contact the team directly."
+            "\nEND OF KNOWLEDGE BASE."
+            "\nUse ONLY the above info to answer company questions. "
+            "If the answer is NOT above, say you don't have those details."
         )
 
         return "\n".join(context_parts)

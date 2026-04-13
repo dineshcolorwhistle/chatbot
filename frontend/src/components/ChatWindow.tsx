@@ -262,7 +262,7 @@ export default function ChatWindow() {
           <div key={msg.id} className={`message ${msg.role}`}>
             {msg.role === "assistant" && (
               <div className="avatar bot-avatar">
-                <span>🤖</span>
+                <img src="/logo.svg" alt="Bot" style={{ width: '20px', height: '20px', objectFit: 'contain' }} />
               </div>
             )}
             <div className="message-bubble">
@@ -293,7 +293,7 @@ export default function ChatWindow() {
         {isLoading && (
           <div className="message assistant">
             <div className="avatar bot-avatar">
-              <span>🤖</span>
+              <img src="/logo.svg" alt="Bot" style={{ width: '20px', height: '20px', objectFit: 'contain' }} />
             </div>
             <div className="message-bubble typing-indicator">
               <div className="typing-dots">

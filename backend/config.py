@@ -43,6 +43,9 @@ class AppConfig:
         "http://localhost:5173",
         "http://localhost:3000",
     ])
+    admin_emails: list[str] = field(default_factory=lambda: [
+        "admin@colorwhistle.com"
+    ])
 
 
 @dataclass(frozen=True)
@@ -83,11 +86,17 @@ def _load_app_config() -> AppConfig:
     )
     cors_origins = [origin.strip() for origin in cors_origins_str.split(",")]
 
+    admin_emails_str = os.getenv(
+        "ADMIN_EMAILS", "admin@colorwhistle.com"
+    )
+    admin_emails = [email.strip() for email in admin_emails_str.split(",")]
+
     return AppConfig(
         host=os.getenv("APP_HOST", "0.0.0.0"),
         port=int(os.getenv("APP_PORT", "8000")),
         debug=os.getenv("APP_DEBUG", "true").lower() == "true",
         cors_origins=cors_origins,
+        admin_emails=admin_emails,
     )
 
 

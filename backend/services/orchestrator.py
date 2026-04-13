@@ -35,6 +35,7 @@ from services.conversation_agent import ConversationAgent
 from services.summarization_agent import SummarizationAgent
 from services.email_agent import EmailAgent
 from services.session_store import BaseSessionStore
+from config import app_config
 
 logger = logging.getLogger(__name__)
 
@@ -94,7 +95,10 @@ class Orchestrator:
         """
         self._conversation_agent = ConversationAgent(llm_provider, knowledge_base=knowledge_base)
         self._summarization_agent = SummarizationAgent(llm_provider)
-        self._email_agent = EmailAgent(llm_provider)
+        self._email_agent = EmailAgent(
+            llm_provider, 
+            admin_emails=app_config.admin_emails
+        )
         self._session_store = session_store
         self._knowledge_base = knowledge_base
 
