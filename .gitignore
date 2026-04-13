@@ -35,3 +35,6 @@ backend/email_logs/
 
 # Vite
 *.local
+
+#RAG Documents
+backend/Documents/

@@ -79,6 +79,7 @@ class Orchestrator:
         self,
         llm_provider: LLMProvider,
         session_store: BaseSessionStore,
+        knowledge_base=None,
     ) -> None:
         """Initialize the Orchestrator with all agents.
 
@@ -89,11 +90,13 @@ class Orchestrator:
         Args:
             llm_provider: Shared LLM provider for all agents.
             session_store: Session persistence backend.
+            knowledge_base: Optional KnowledgeBase for RAG context.
         """
-        self._conversation_agent = ConversationAgent(llm_provider)
+        self._conversation_agent = ConversationAgent(llm_provider, knowledge_base=knowledge_base)
         self._summarization_agent = SummarizationAgent(llm_provider)
         self._email_agent = EmailAgent(llm_provider)
         self._session_store = session_store
+        self._knowledge_base = knowledge_base
 
         logger.info("Orchestrator initialized with all agents")
 

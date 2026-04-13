@@ -45,6 +45,25 @@ class AppConfig:
     ])
 
 
+@dataclass(frozen=True)
+class PineconeConfig:
+    """Pinecone vector database configuration for RAG."""
+
+    api_key: str = ""
+    index_name: str = "colorwhistle-kb"
+    cloud: str = "aws"
+    region: str = "us-east-1"
+
+
+@dataclass(frozen=True)
+class EmbeddingConfig:
+    """Embedding model configuration."""
+
+    model: str = "nomic-embed-text"
+    dimension: int = 768
+    ollama_base_url: str = "http://localhost:11434"
+
+
 def _load_llm_config() -> LLMConfig:
     """Load LLM configuration from environment variables."""
     return LLMConfig(
@@ -72,6 +91,27 @@ def _load_app_config() -> AppConfig:
     )
 
 
+def _load_pinecone_config() -> PineconeConfig:
+    """Load Pinecone configuration from environment variables."""
+    return PineconeConfig(
+        api_key=os.getenv("PINECONE_API_KEY", ""),
+        index_name=os.getenv("PINECONE_INDEX_NAME", "colorwhistle-kb"),
+        cloud=os.getenv("PINECONE_CLOUD", "aws"),
+        region=os.getenv("PINECONE_REGION", "us-east-1"),
+    )
+
+
+def _load_embedding_config() -> EmbeddingConfig:
+    """Load embedding model configuration from environment variables."""
+    return EmbeddingConfig(
+        model=os.getenv("EMBEDDING_MODEL", "nomic-embed-text"),
+        dimension=int(os.getenv("EMBEDDING_DIMENSION", "768")),
+        ollama_base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
+    )
+
+
 # Singleton instances — import these directly
 llm_config = _load_llm_config()
 app_config = _load_app_config()
+pinecone_config = _load_pinecone_config()
+embedding_config = _load_embedding_config()

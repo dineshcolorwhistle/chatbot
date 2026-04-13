@@ -16,11 +16,13 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from config import app_config
+from config import app_config, pinecone_config
 from providers.factory import create_llm_provider
 from services.orchestrator import Orchestrator
 from services.memory_store import session_store
+from services.knowledge_base import KnowledgeBase
 from routes.chat import router as chat_router
+from routes.admin import router as admin_router
 
 # Configure logging
 logging.basicConfig(
@@ -39,6 +41,7 @@ async def lifespan(app: FastAPI):
     Startup:
       - Initialize the LLM provider
       - Run health check to verify connectivity
+      - Initialize the Knowledge Base (Pinecone + embeddings)
       - Initialize the Orchestrator with all agents
     Shutdown:
       - Cleanup resources
@@ -61,10 +64,34 @@ async def lifespan(app: FastAPI):
             "The application will start but LLM calls may fail."
         )
 
+    # Initialize Knowledge Base (RAG pipeline)
+    knowledge_base = None
+    if pinecone_config.api_key:
+        try:
+            knowledge_base = KnowledgeBase()
+            kb_ready = await knowledge_base.initialize()
+            if kb_ready:
+                logger.info("Knowledge Base (Pinecone) is ready")
+                app.state.knowledge_base = knowledge_base
+            else:
+                logger.warning(
+                    "Knowledge Base initialization failed. "
+                    "RAG features will be unavailable."
+                )
+                knowledge_base = None
+        except Exception as e:
+            logger.warning("Knowledge Base setup error: %s. RAG features disabled.", e)
+            knowledge_base = None
+    else:
+        logger.info("No Pinecone API key configured — RAG features disabled")
+
+    app.state.knowledge_base = knowledge_base
+
     # Initialize Orchestrator (coordinates all agents)
     orchestrator = Orchestrator(
         llm_provider=llm_provider,
         session_store=session_store,
+        knowledge_base=knowledge_base,
     )
     app.state.orchestrator = orchestrator
     logger.info("Orchestrator initialized with all agents")
@@ -95,8 +122,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include chat routes
+# Include routes
 app.include_router(chat_router)
+app.include_router(admin_router)
 
 
 # --- Health & Status Endpoints ---

@@ -157,17 +157,23 @@ class ConversationAgent:
     data from free-form user responses while maintaining a friendly,
     professional tone.
 
+    Optionally integrates with the KnowledgeBase for RAG-augmented
+    responses about company details, services, and pricing.
+
     Attributes:
         _llm: The LLM provider instance used for generation.
+        _knowledge_base: Optional knowledge base for RAG context retrieval.
     """
 
-    def __init__(self, llm_provider: LLMProvider) -> None:
+    def __init__(self, llm_provider: LLMProvider, knowledge_base=None) -> None:
         """Initialize the Conversation Agent.
 
         Args:
             llm_provider: The LLM provider to use for generating responses.
+            knowledge_base: Optional KnowledgeBase instance for RAG retrieval.
         """
         self._llm = llm_provider
+        self._knowledge_base = knowledge_base
 
     async def process_message(
         self,
@@ -187,7 +193,20 @@ class ConversationAgent:
             ConversationResult with the reply, extracted data, and
             stage advancement recommendation.
         """
-        system_prompt = self._build_system_prompt(session)
+        # Query knowledge base for relevant context (RAG)
+        rag_context = ""
+        if self._knowledge_base:
+            try:
+                results = await self._knowledge_base.query(
+                    question=user_message,
+                    top_k=5,
+                    score_threshold=0.3,
+                )
+                rag_context = self._knowledge_base.format_context_for_llm(results)
+            except Exception as e:
+                logger.warning("RAG context retrieval failed: %s", e)
+
+        system_prompt = self._build_system_prompt(session, rag_context=rag_context)
 
         # Build message list for LLM
         messages: list[LLMMessage] = [
@@ -244,14 +263,16 @@ class ConversationAgent:
                 should_advance=False,
             )
 
-    def _build_system_prompt(self, session: Session) -> str:
+    def _build_system_prompt(self, session: Session, rag_context: str = "") -> str:
         """Build a dynamic system prompt based on session context.
 
         Combines the persona, stage-specific instructions, collected
-        data context, and data extraction format instructions.
+        data context, RAG knowledge base context, and data extraction
+        format instructions.
 
         Args:
             session: The current session state.
+            rag_context: Optional RAG context from the knowledge base.
 
         Returns:
             A complete system prompt string.
@@ -262,6 +283,10 @@ class ConversationAgent:
         stage_prompt = STAGE_PROMPTS.get(session.stage, "")
         if stage_prompt:
             parts.append(stage_prompt)
+
+        # Add RAG knowledge base context (if available)
+        if rag_context:
+            parts.append(rag_context)
 
         # Add context of already-collected data
         collected_context = self._build_collected_context(session)
