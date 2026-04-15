@@ -148,6 +148,82 @@ QUESTION_PATTERNS = [
 ]
 
 
+# ============================================
+# Irrelevant Question Patterns
+# Catches off-topic questions BEFORE they
+# reach the LLM to prevent hallucinated answers
+# ============================================
+
+IRRELEVANT_PATTERNS = [
+    # Time & date
+    r"\b(what|tell).*(time|date|day|month|year)\b",
+    r"\b(current|today).*(time|date)\b",
+    r"\bwhat time\b",
+    r"\bwhat day\b",
+    # Weather
+    r"\b(weather|temperature|forecast|rain|sunny|cloudy|snow)\b",
+    # Math & calculations
+    r"\b(calculate|compute|solve|math|equation)\b",
+    r"^\d+\s*[\+\-\*\/\%]\s*\d+",     # e.g. "5 + 3"
+    # Sports & entertainment
+    r"\b(score|match|game|cricket|football|soccer|basketball|baseball|tennis|movie|song|music|netflix)\b",
+    # General knowledge / trivia
+    r"\b(capital of|president of|population of|who invented|who discovered|who is the)\b",
+    r"\b(meaning of life|tell me a joke|joke|funny|riddle)\b",
+    # Personal / social
+    r"\b(your name|who are you|are you real|are you human|are you ai|are you a bot)\b",
+    r"\b(how old are you|where do you live|your age|your favorite)\b",
+    # News & politics
+    r"\b(latest news|breaking news|election|politics|stock market|crypto|bitcoin)\b",
+    # Food & recipes
+    r"\b(recipe|cook|food|restaurant|calories)\b",
+    # Health (non-project)
+    r"\b(headache|medicine|doctor|symptom|diet|exercise|workout)\b",
+    # Navigation & travel
+    r"\b(directions to|how to get to|nearest|flight|hotel|travel|vacation)\b",
+    # Random tasks
+    r"\b(translate|write a poem|write a story|sing|draw)\b",
+    r"\b(lottery|horoscope|zodiac|astrology)\b",
+]
+
+# Keywords that indicate a RELEVANT question (about services, web dev, project)
+# If any of these appear, the question is NOT irrelevant even if it matches above
+RELEVANT_KEYWORDS = [
+    "colorwhistle", "project", "website", "web app", "mobile app",
+    "development", "design", "service", "pricing", "cost", "budget",
+    "timeline", "deadline", "feature", "technology", "tech stack",
+    "react", "python", "api", "database", "hosting", "deploy",
+    "ecommerce", "e-commerce", "cms", "wordpress", "seo",
+    "portfolio", "consultation", "team", "experience", "clients",
+    "support", "maintenance", "integration", "payment",
+    "frontend", "backend", "fullstack", "full-stack",
+]
+
+# Stage-aware redirect messages
+STAGE_REDIRECT_MESSAGES: dict[ConversationStage, str] = {
+    ConversationStage.PERSONAL_INFO: (
+        "I appreciate your curiosity, but I'm not able to help with that! 😊 "
+        "I'm here to assist with your project consultation. "
+        "Could you share your **{missing}** so we can continue?"
+    ),
+    ConversationStage.TECH_DISCOVERY: (
+        "That's outside my area of expertise! 😊 "
+        "Let's get back to your project — "
+        "could you tell me about your **{missing}**?"
+    ),
+    ConversationStage.SCOPE_PRICING: (
+        "I wish I could help with that, but my focus is on your project! 😊 "
+        "Let's discuss your **{missing}** to wrap up the consultation."
+    ),
+}
+
+DEFAULT_REDIRECT = (
+    "I appreciate the question, but that's outside what I can help with! 😊 "
+    "I'm your project consultant at ColorWhistle, and I'm here to understand "
+    "your project needs. Let's continue with our consultation!"
+)
+
+
 class ConversationAgent:
     """LLM-powered agent that leads the conversation with users.
 
@@ -195,7 +271,19 @@ class ConversationAgent:
         is_question = self._is_question(user_message)
 
         if is_question:
-            logger.info("Detected user question — will answer without extracting data")
+            logger.info("Detected user question — checking relevance")
+
+            # Intercept irrelevant questions BEFORE they reach the LLM
+            if self._is_irrelevant_question(user_message):
+                logger.info("Irrelevant question detected — returning redirect")
+                redirect_reply = self._get_redirect_message(session)
+                return ConversationResult(
+                    reply=redirect_reply,
+                    extracted_data={},
+                    should_advance=False,
+                )
+
+            logger.info("Relevant question — will answer without extracting data")
 
         # Query knowledge base for relevant context (RAG)
         rag_context = ""
@@ -305,6 +393,115 @@ class ConversationAgent:
                 return True
 
         return False
+
+    def _is_irrelevant_question(self, message: str) -> bool:
+        """Detect if a question is irrelevant to the project consultation.
+
+        Catches off-topic questions (time, weather, math, sports, etc.)
+        BEFORE they reach the LLM. This prevents hallucinated answers
+        and saves unnecessary API calls.
+
+        A question is considered irrelevant if:
+          1. It matches any IRRELEVANT_PATTERNS, AND
+          2. It does NOT contain any RELEVANT_KEYWORDS
+
+        Args:
+            message: The user's message text.
+
+        Returns:
+            True if the question is off-topic and should be redirected.
+        """
+        msg_lower = message.strip().lower()
+
+        # First check: does it contain any relevant keywords?
+        # If yes, treat it as relevant regardless of pattern matches
+        for keyword in RELEVANT_KEYWORDS:
+            if keyword in msg_lower:
+                logger.debug(
+                    "Question contains relevant keyword '%s' — treating as relevant",
+                    keyword,
+                )
+                return False
+
+        # Second check: does it match any irrelevant patterns?
+        for pattern in IRRELEVANT_PATTERNS:
+            if re.search(pattern, msg_lower, re.IGNORECASE):
+                logger.debug(
+                    "Question matched irrelevant pattern: %s",
+                    pattern,
+                )
+                return True
+
+        return False
+
+    def _get_redirect_message(self, session: Session) -> str:
+        """Generate a stage-aware redirect message for irrelevant questions.
+
+        Builds a friendly redirect that reminds the user what
+        information is still needed for the current stage.
+
+        Args:
+            session: The current session state.
+
+        Returns:
+            A polite redirect message string.
+        """
+        stage = session.stage
+        template = STAGE_REDIRECT_MESSAGES.get(stage)
+
+        if not template:
+            return DEFAULT_REDIRECT
+
+        # Determine what's still missing for the current stage
+        missing = self._get_missing_fields(session)
+
+        if missing:
+            return template.format(missing=missing)
+
+        return DEFAULT_REDIRECT
+
+    def _get_missing_fields(self, session: Session) -> str:
+        """Get a human-readable string of missing fields for the current stage.
+
+        Args:
+            session: The current session state.
+
+        Returns:
+            A string describing what's still needed, e.g. "email and phone number".
+        """
+        stage = session.stage
+        data = session.collected_data
+        missing: list[str] = []
+
+        if stage == ConversationStage.PERSONAL_INFO:
+            if not data.personal_info.name:
+                missing.append("name")
+            if not data.personal_info.email:
+                missing.append("email address")
+            if not data.personal_info.phone:
+                missing.append("phone number")
+
+        elif stage == ConversationStage.TECH_DISCOVERY:
+            if not data.tech_discovery.project_type:
+                missing.append("project type")
+            if not data.tech_discovery.features:
+                missing.append("key features")
+
+        elif stage == ConversationStage.SCOPE_PRICING:
+            if not data.scope_pricing.budget:
+                missing.append("budget range")
+            if not data.scope_pricing.timeline:
+                missing.append("timeline")
+
+        if not missing:
+            return ""
+
+        if len(missing) == 1:
+            return missing[0]
+        elif len(missing) == 2:
+            return f"{missing[0]} and {missing[1]}"
+        else:
+            return ", ".join(missing[:-1]) + f", and {missing[-1]}"
 
     # ============================================
     # System Prompt Builder
