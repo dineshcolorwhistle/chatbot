@@ -14,6 +14,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import {
   sendMessage,
   resetSession,
+  exitSession,
   generateSessionId,
   type ChatResponse,
 } from "../api";
@@ -80,6 +81,20 @@ export default function ChatWindow() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  // Handle page exit
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      if (sessionId && currentStage !== "completed" && currentStage !== "welcome") {
+        exitSession(sessionId).catch(() => {});
+      }
+    };
+    
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+    };
+  }, [sessionId, currentStage]);
 
   // Focus input after loading
   useEffect(() => {

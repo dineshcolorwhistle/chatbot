@@ -22,6 +22,7 @@ Design:
 """
 
 import logging
+import asyncio
 from datetime import datetime
 
 from models.schemas import (
@@ -375,14 +376,16 @@ class Orchestrator:
 
         email_result = await self._email_agent.compose_and_send(session)
 
-        reply = (
-            f"{email_result.message}\n\n"
-            "📧 A confirmation email has been sent to your address, "
-            "and our team has been notified about your project requirements.\n\n"
-            "Thank you for your time! We look forward to working with you. "
-            "If you have any questions in the meantime, feel free to reach out.\n\n"
-            "Have a wonderful day! 👋"
-        )
+        reply_parts = [email_result.message]
+
+        if email_result.user_email:
+            reply_parts.append("📧 A confirmation email has been sent to your address, and our team has been notified about your project requirements.")
+        elif email_result.admin_email:
+            reply_parts.append("Our team has been notified about your project requirements.")
+
+        reply_parts.append("Thank you for your time! We look forward to working with you. If you have any questions in the meantime, feel free to reach out.\n\nHave a wonderful day! 👋")
+
+        reply = "\n\n".join(reply_parts)
 
         # Transition to completed
         session.stage = ConversationStage.COMPLETED
@@ -493,6 +496,27 @@ class Orchestrator:
         """
         return await self._session_store.get(session_id)
 
+    async def trigger_early_exit(self, session_id: str) -> bool:
+        """Trigger background early exit processing for a session."""
+        session = await self._session_store.get(session_id)
+        if not session or session.stage in (ConversationStage.WELCOME, ConversationStage.COMPLETED):
+            return False
+            
+        asyncio.create_task(self._process_early_exit(session))
+        return True
+        
+    async def _process_early_exit(self, session: Session) -> None:
+        """Background task to analyze intent and send emails on early exit."""
+        logger.info("Processing early exit for session %s", session.session_id)
+        
+        if not session.summary and len(session.conversation_history) > 2:
+            try:
+                session.summary = await self._summarization_agent.generate_summary(session)
+            except Exception as e:
+                logger.warning("Failed to generate summary during early exit: %s", e)
+                
+        await self._email_agent.compose_and_send(session, is_early_exit=True)
+
     async def reset_session(self, session_id: str) -> bool:
         """Reset a session by deleting it.
 
@@ -502,6 +526,9 @@ class Orchestrator:
         Returns:
             True if the session was found and deleted.
         """
+        # Trigger early exit logic if the session was active and abandoned
+        await self.trigger_early_exit(session_id)
+
         deleted = await self._session_store.delete(session_id)
         if deleted:
             logger.info("Session reset: %s", session_id)

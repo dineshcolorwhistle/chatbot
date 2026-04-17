@@ -130,6 +130,27 @@ export async function resetSession(
 }
 
 /**
+ * Handle early session exit (e.g. user leaves page) without deleting history.
+ */
+export async function exitSession(
+  sessionId: string
+): Promise<{ status: string; triggered: boolean }> {
+  // Using keepalive allows the request to complete even if the page closes
+  const response = await fetch(`${API_BASE_URL}/exit`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ session_id: sessionId }),
+    keepalive: true,
+  });
+
+  if (!response.ok) {
+    throw new Error(`API error: ${response.status}`);
+  }
+
+  return response.json();
+}
+
+/**
  * Check backend health status.
  */
 export async function checkHealth(): Promise<HealthResponse> {

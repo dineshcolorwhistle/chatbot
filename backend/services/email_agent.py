@@ -104,6 +104,14 @@ Do NOT wrap in markdown code blocks.
 Start with a brief header like "New Lead Notification" then list details.
 """
 
+INTENT_SYSTEM_PROMPT = """You are an intent analysis AI for a software development agency.
+Analyze the provided conversation history and collected data to determine the user's intent.
+
+Respond with ONLY the word "HIGH" if the user shows an intent to purchase, start a project, or has a high interest in the services. 
+Respond with ONLY the word "LOW" if the user is just browsing, asking general questions, spamming, or is not interested.
+Do not provide any explanation, just the single word "HIGH" or "LOW".
+"""
+
 
 class EmailAgent:
     """LLM-powered agent that composes and mock-sends notification emails.
@@ -133,51 +141,101 @@ class EmailAgent:
         self._llm = llm_provider
         self._admin_emails = admin_emails or ["admin@colorwhistle.com"]
 
-    async def compose_and_send(self, session: Session) -> EmailResult:
-        """Compose both emails and mock-send them.
+    async def analyze_intent(self, session: Session) -> bool:
+        """Analyze if the session has high interest or purchase intent."""
+        history = "\n".join([f"{msg.role}: {msg.content}" for msg in session.conversation_history])
+        data_summary = session.collected_data.to_summary_dict()
+        
+        context = f"=== CONVERSATION HISTORY ===\n{history}\n\n=== COLLECTED DATA ===\n{data_summary}"
+        
+        messages: list[LLMMessage] = [
+            LLMMessage(role="system", content=INTENT_SYSTEM_PROMPT),
+            LLMMessage(role="user", content=context),
+        ]
+        
+        try:
+            response = await self._llm.generate(
+                messages=messages,
+                temperature=0.1,
+                max_tokens=10,
+            )
+            result = response.content.strip().upper()
+            return "HIGH" in result
+        except Exception as e:
+            logger.error("Intent analysis failed: %s", e)
+            return True  # Default to true if fails so we don't drop leads
+
+    async def compose_and_send(self, session: Session, is_early_exit: bool = False) -> EmailResult | None:
+        """Compose both emails and mock-send them depending on intent and data.
 
         Uses the LLM to generate personalized email content, then
         logs them to console and file.
 
         Args:
             session: The complete session with summary and collected data.
+            is_early_exit: Whether this is triggered by user exiting early.
 
         Returns:
-            EmailResult with both composed emails and status.
+            EmailResult with composed emails and status, or None if skipped.
         """
         try:
-            # Compose both emails (can run in sequence for clarity)
-            user_email = await self._compose_user_email(session)
-            admin_email = await self._compose_admin_email(session)
+            # 1. Analyze Intent
+            is_high_intent = await self.analyze_intent(session)
+            if not is_high_intent:
+                logger.info("Session %s determined as low intent. Skipping emails.", session.session_id)
+                return EmailResult(
+                    user_email=None,  # type: ignore
+                    admin_email=None, # type: ignore
+                    success=True,
+                    message="Session finished cleanly (no emails sent due to low intent)."
+                )
 
-            # Mock send — log to console and file
-            self._mock_send(user_email)
+            # Compose admin email first (always sent for high intent)
+            admin_email = await self._compose_admin_email(session)
             self._mock_send(admin_email)
+
+            # Compose user email ONLY if user provided an email address
+            user_email = None
+            if session.collected_data.personal_info.email:
+                user_email = await self._compose_user_email(session)
+                self._mock_send(user_email)
+            else:
+                logger.info("No user email found for session %s. Skipping user email.", session.session_id)
 
             # Save to log file
             self._save_to_log(session.session_id, user_email, admin_email)
 
             logger.info(
-                "Emails composed and sent for session %s",
-                session.session_id,
+                "Emails composed and sent for session %s (Early Exit: %s)",
+                session.session_id, is_early_exit
             )
+
+            if is_early_exit:
+                message = "Session saved."
+            elif user_email:
+                message = "Thank you! We've sent a confirmation to your email and notified our team."
+            else:
+                message = "Thank you! Our team has been notified."
 
             return EmailResult(
                 user_email=user_email,
                 admin_email=admin_email,
                 success=True,
-                message="Thank you! We've sent a confirmation to your email and notified our team.",
+                message=message,
             )
 
         except Exception as e:
             logger.error("Email Agent error: %s", e)
 
             # Generate fallback emails
-            user_email = self._compose_fallback_user_email(session)
             admin_email = self._compose_fallback_admin_email(session)
-
-            self._mock_send(user_email)
             self._mock_send(admin_email)
+
+            user_email = None
+            if session.collected_data.personal_info.email:
+                user_email = self._compose_fallback_user_email(session)
+                self._mock_send(user_email)
+
             self._save_to_log(session.session_id, user_email, admin_email)
 
             return EmailResult(
@@ -375,14 +433,6 @@ class EmailAgent:
                 f"Timestamp: {datetime.utcnow().isoformat()}",
                 "",
                 "=" * 60,
-                "USER THANK-YOU EMAIL",
-                "=" * 60,
-                f"To: {user_email.to}",
-                f"Subject: {user_email.subject}",
-                "",
-                user_email.body,
-                "",
-                "=" * 60,
                 "ADMIN NOTIFICATION EMAIL",
                 "=" * 60,
                 f"To: {admin_email.to}",
@@ -390,6 +440,18 @@ class EmailAgent:
                 "",
                 admin_email.body,
             ]
+            
+            if user_email:
+                content_parts.extend([
+                    "",
+                    "=" * 60,
+                    "USER THANK-YOU EMAIL",
+                    "=" * 60,
+                    f"To: {user_email.to}",
+                    f"Subject: {user_email.subject}",
+                    "",
+                    user_email.body,
+                ])
 
             filepath.write_text("\n".join(content_parts), encoding="utf-8")
 

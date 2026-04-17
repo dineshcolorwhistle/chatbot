@@ -171,3 +171,36 @@ async def reset_session(
             status_code=500,
             detail="An error occurred while resetting the session.",
         )
+
+
+@router.post("/exit")
+async def exit_session(
+    request: Request, body: ResetRequest
+) -> dict:
+    """Handle early session exit (e.g. user leaves page).
+
+    Triggers the early exit workflow to evaluate intent and 
+    potentially send lead notification emails in the background.
+
+    Args:
+        request: The FastAPI request.
+        body: Validated ResetRequest with session_id.
+
+    Returns:
+        Status dict
+    """
+    orchestrator = request.app.state.orchestrator
+
+    try:
+        triggered = await orchestrator.trigger_early_exit(body.session_id)
+        
+        logger.info("POST /api/exit — session: %s, triggered: %s", body.session_id, triggered)
+
+        return {"status": "success", "triggered": triggered}
+
+    except Exception as e:
+        logger.error("Error triggering exit for session %s: %s", body.session_id, e)
+        raise HTTPException(
+            status_code=500,
+            detail="An error occurred while exiting the session.",
+        )
