@@ -104,9 +104,9 @@ class PersonalInfo(BaseModel):
     def is_complete(self) -> bool:
         """Check if all required personal fields are collected.
 
-        Company is optional, so only name, email, and phone are required.
+        Only name and email are required. Phone and company are not collected.
         """
-        return all([self.name, self.email, self.phone])
+        return all([self.name, self.email])
 
     def get_missing_fields(self) -> list[str]:
         """Return list of required fields not yet collected."""
@@ -115,8 +115,6 @@ class PersonalInfo(BaseModel):
             missing.append("name")
         if not self.email:
             missing.append("email")
-        if not self.phone:
-            missing.append("phone")
         return missing
 
 

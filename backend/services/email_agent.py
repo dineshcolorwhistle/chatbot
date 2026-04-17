@@ -338,8 +338,6 @@ class EmailAgent:
         parts.append("=== CLIENT INFORMATION ===")
         parts.append(f"Name: {data.personal_info.name or 'Not provided'}")
         parts.append(f"Email: {data.personal_info.email or 'Not provided'}")
-        parts.append(f"Phone: {data.personal_info.phone or 'Not provided'}")
-        parts.append(f"Company: {data.personal_info.company or 'Not provided'}")
 
         parts.append("\n=== PROJECT DETAILS ===")
         parts.append(

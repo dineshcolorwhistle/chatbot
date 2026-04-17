@@ -155,12 +155,15 @@ export default function ChatWindow() {
         err instanceof Error ? err.message : "An unexpected error occurred";
       setError(errorMsg);
 
-      // Add error as system message
+      // Add error as system message with the actual error detail
+      const isConnectionError = errorMsg.toLowerCase().includes("connect") ||
+        errorMsg.toLowerCase().includes("server");
       const errMsg: Message = {
         id: `error-${Date.now()}`,
         role: "assistant",
-        content:
-          "I'm sorry, I encountered an error. Please try again or reset the session.",
+        content: isConnectionError
+          ? `⚠️ ${errorMsg}`
+          : "I'm sorry, I encountered an error. Please try again or reset the session.",
         timestamp: new Date(),
       };
       setMessages((prev) => [...prev, errMsg]);
@@ -239,25 +242,7 @@ export default function ChatWindow() {
         </div>
       </header>
 
-      {/* Stage Progress */}
-      <div className="stage-progress">
-        {STAGES.map((stage, idx) => (
-          <div
-            key={stage.key}
-            className={`stage-step ${
-              idx < stageIndex
-                ? "completed"
-                : idx === stageIndex
-                ? "active"
-                : "pending"
-            }`}
-            title={stage.label}
-          >
-            <span className="stage-icon">{stage.icon}</span>
-            <span className="stage-label">{stage.label}</span>
-          </div>
-        ))}
-      </div>
+      {/* Stage Progress element removed from UI */}
 
       {/* Messages Area */}
       <div className="messages-area" id="messages-area">

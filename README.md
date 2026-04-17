@@ -196,8 +196,7 @@ The complete request lifecycle when a **user sends a message**:
 │                                      │           │
 │     Step 5a: Apply Extracted Data    │           │
 │     • Map fields to session model:   │           │
-│       - personal_info: name, email,  │           │
-│         phone, company               │           │
+│       - personal_info: name, email  │           │
 │       - tech_discovery: project_type,│           │
 │         tech_stack, features,        │           │
 │         integrations                 │           │

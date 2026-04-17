@@ -7,11 +7,17 @@
 .chat-container {
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  height: calc(100vh - 48px);
+  min-height: calc(100vh - 48px);
+  width: 100%;
   max-width: 900px;
-  margin: 0 auto;
+  margin: 24px auto;
   background: var(--bg-primary);
+  border-radius: 20px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.05);
   position: relative;
+  overflow: hidden;
+  flex-shrink: 0;
 }
 
 /* ---- Header ---- */
@@ -543,6 +549,17 @@
 }
 
 /* ---- Responsive ---- */
+
+@media (max-width: 948px) {
+  .chat-container {
+    height: 100vh;
+    min-height: 100vh;
+    margin: 0;
+    border-radius: 0;
+    border: none;
+    box-shadow: none;
+  }
+}
 
 @media (max-width: 600px) {
   .chat-header {

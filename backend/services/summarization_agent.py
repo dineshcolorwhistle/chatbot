@@ -42,8 +42,6 @@ Generate the summary using this exact structure:
 **Client Information:**
 - Name: [name]
 - Email: [email]
-- Phone: [phone]
-- Company: [company or "Not provided"]
 
 **Project Overview:**
 - Type: [project type]
@@ -206,8 +204,6 @@ class SummarizationAgent:
             "**Client Information:**",
             f"- Name: {pi.name or 'Not provided'}",
             f"- Email: {pi.email or 'Not provided'}",
-            f"- Phone: {pi.phone or 'Not provided'}",
-            f"- Company: {pi.company or 'Not provided'}",
             "",
             "**Project Overview:**",
             f"- Type: {td.project_type or 'Not specified'}",
