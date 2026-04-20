@@ -39,6 +39,7 @@ class AppConfig:
     host: str = "0.0.0.0"
     port: int = 8000
     debug: bool = True
+    max_user_messages: int = 5
     cors_origins: list[str] = field(default_factory=lambda: [
         "http://localhost:5173",
         "http://localhost:3000",
@@ -46,6 +47,13 @@ class AppConfig:
     admin_emails: list[str] = field(default_factory=lambda: [
         "admin@colorwhistle.com"
     ])
+    
+    # SMTP Settings for sending real emails
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_from: str = "noreply@colorwhistle.com"
 
 
 @dataclass(frozen=True)
@@ -95,8 +103,14 @@ def _load_app_config() -> AppConfig:
         host=os.getenv("APP_HOST", "0.0.0.0"),
         port=int(os.getenv("APP_PORT", "8000")),
         debug=os.getenv("APP_DEBUG", "true").lower() == "true",
+        max_user_messages=int(os.getenv("MAX_USER_MESSAGES", "5")),
         cors_origins=cors_origins,
         admin_emails=admin_emails,
+        smtp_host=os.getenv("SMTP_HOST", ""),
+        smtp_port=int(os.getenv("SMTP_PORT", "587")),
+        smtp_user=os.getenv("SMTP_USER", ""),
+        smtp_password=os.getenv("SMTP_PASSWORD", ""),
+        smtp_from=os.getenv("SMTP_FROM", "noreply@colorwhistle.com"),
     )
 
 

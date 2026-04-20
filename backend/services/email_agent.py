@@ -19,9 +19,13 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
 from models.schemas import Session
 from providers.base import LLMProvider, LLMMessage
+from config import app_config
 
 logger = logging.getLogger(__name__)
 
@@ -181,6 +185,11 @@ class EmailAgent:
         try:
             # 1. Analyze Intent
             is_high_intent = await self.analyze_intent(session)
+            
+            # Always treat as high intent if they provided an email
+            if session.collected_data.personal_info.email:
+                is_high_intent = True
+
             if not is_high_intent:
                 logger.info("Session %s determined as low intent. Skipping emails.", session.session_id)
                 return EmailResult(
@@ -192,13 +201,13 @@ class EmailAgent:
 
             # Compose admin email first (always sent for high intent)
             admin_email = await self._compose_admin_email(session)
-            self._mock_send(admin_email)
+            self._send_email(admin_email)
 
             # Compose user email ONLY if user provided an email address
             user_email = None
             if session.collected_data.personal_info.email:
                 user_email = await self._compose_user_email(session)
-                self._mock_send(user_email)
+                self._send_email(user_email)
             else:
                 logger.info("No user email found for session %s. Skipping user email.", session.session_id)
 
@@ -229,12 +238,12 @@ class EmailAgent:
 
             # Generate fallback emails
             admin_email = self._compose_fallback_admin_email(session)
-            self._mock_send(admin_email)
+            self._send_email(admin_email)
 
             user_email = None
             if session.collected_data.personal_info.email:
                 user_email = self._compose_fallback_user_email(session)
-                self._mock_send(user_email)
+                self._send_email(user_email)
 
             self._save_to_log(session.session_id, user_email, admin_email)
 
@@ -382,15 +391,16 @@ class EmailAgent:
 
         return "\n".join(parts)
 
-    def _mock_send(self, email: ComposedEmail) -> None:
-        """Mock-send an email by printing to console.
+    def _send_email(self, email: ComposedEmail) -> None:
+        """Send an email via SMTP or print to console if not configured.
 
         Args:
-            email: The composed email to mock-send.
+            email: The composed email to send.
         """
+        # Always log to console as well for debugging
         separator = "=" * 60
         print(f"\n{separator}")
-        print(f"📧 MOCK EMAIL — {email.email_type.upper()}")
+        print(f"📧 EMAIL — {email.email_type.upper()}")
         print(separator)
         print(f"To: {email.to}")
         print(f"Subject: {email.subject}")
@@ -398,11 +408,40 @@ class EmailAgent:
         print(email.body)
         print(f"{separator}\n")
 
-        logger.info(
-            "Mock email sent — type: %s, to: %s",
-            email.email_type,
-            email.to,
-        )
+        # Basic validation
+        if not app_config.smtp_host or not app_config.smtp_user:
+            logger.info(
+                "SMTP not configured. Mock email sent to console — type: %s, to: %s",
+                email.email_type,
+                email.to,
+            )
+            return
+
+        try:
+            msg = MIMEMultipart()
+            msg['From'] = app_config.smtp_from
+            msg['To'] = email.to
+            msg['Subject'] = email.subject
+            msg.attach(MIMEText(email.body, 'plain'))
+
+            server = smtplib.SMTP(app_config.smtp_host, app_config.smtp_port)
+            server.starttls()
+            server.login(app_config.smtp_user, app_config.smtp_password)
+            server.send_message(msg)
+            server.quit()
+            
+            logger.info(
+                "SMTP email delivered — type: %s, to: %s",
+                email.email_type,
+                email.to,
+            )
+        except Exception as e:
+            logger.error(
+                "Failed to send SMTP email — type: %s, to: %s, error: %s",
+                email.email_type,
+                email.to,
+                e
+            )
 
     def _save_to_log(
         self,

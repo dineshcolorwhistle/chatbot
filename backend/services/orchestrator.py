@@ -102,8 +102,14 @@ class Orchestrator:
         )
         self._session_store = session_store
         self._knowledge_base = knowledge_base
+        self._bg_tasks = set()
 
         logger.info("Orchestrator initialized with all agents")
+
+    def _run_background_task(self, coro):
+        task = asyncio.create_task(coro)
+        self._bg_tasks.add(task)
+        task.add_done_callback(self._bg_tasks.discard)
 
     async def process_message(
         self, session_id: str, message: str
@@ -159,6 +165,12 @@ class Orchestrator:
 
         elif stage == ConversationStage.EMAIL:
             return await self._handle_email(session, message)
+
+        elif stage == ConversationStage.LIMIT_WARNING:
+            return await self._handle_limit_warning(session, message)
+
+        elif stage == ConversationStage.FINAL_INPUT:
+            return await self._handle_final_input(session, message)
 
         elif stage == ConversationStage.COMPLETED:
             return await self._handle_completed(session)
@@ -235,7 +247,10 @@ class Orchestrator:
         Returns:
             ChatResponse with the agent's reply and updated state.
         """
-        # Add user message to history
+        # Check user message limit BEFORE adding this new message
+        user_msg_count = sum(1 for m in session.conversation_history if m.role == "user")
+        
+        # Add user message to history (this makes the count go up by 1)
         session.add_message("user", message)
 
         # Process through Conversation Agent
@@ -246,8 +261,11 @@ class Orchestrator:
         # Apply extracted data to session
         self._apply_extracted_data(session, result.extracted_data)
 
-        # Check for stage advancement
-        if result.should_advance:
+        # Check for stage advancement — also re-check with updated session
+        # data in case the agent checked before data was applied
+        should_advance = result.should_advance or self._check_stage_complete(session)
+
+        if should_advance:
             next_stage = get_next_stage(session.stage)
             if next_stage:
                 logger.info(
@@ -258,13 +276,37 @@ class Orchestrator:
                 )
                 session.stage = next_stage
 
-                # If we just entered summary stage, generate summary automatically
                 if next_stage == ConversationStage.SUMMARY:
                     session.add_message("assistant", result.reply)
                     await self._session_store.save(session)
                     return await self._handle_summary(session, "")
 
-        # Save and return
+        # If they haven't advanced to SUMMARY AND they reached the limit:
+        # Note: By the time this block runs, the new message has been added to history.
+        # If user_msg_count (count before adding message) >= app_config.max_user_messages
+        # wait! `user_msg_count` is the count BEFORE adding `message`. 
+        # If `user_msg_count` == max_user_messages, they already reached the limit previously, 
+        # but that shouldn't happen because they'd be in LIMIT_WARNING stage. 
+        # If they just reached it now, `len()` would be max, which means `user_msg_count == max - 1`.
+        # Wait, if `max_user_messages` = 5.
+        # Msg 1..5. Before Msg 5 is added, count is 4. Next count is 5. 
+        # So we want `user_msg_count + 1 >= app_config.max_user_messages`.
+        if user_msg_count + 1 >= app_config.max_user_messages:
+            session.stage = ConversationStage.LIMIT_WARNING
+            reply = (
+                "You’ve reached the maximum number of interactions for this session. "
+                "Our team will review your request and get back to you shortly.\n\n"
+                "Would you like to provide all remaining details in a single message so we can proceed? (Yes/No)"
+            )
+            session.add_message("assistant", reply)
+            await self._session_store.save(session)
+            return ChatResponse(
+                reply=reply,
+                stage=session.stage,
+                data_collected=session.collected_data.to_summary_dict(),
+            )
+
+        # Save and return normal conversation reply
         session.add_message("assistant", result.reply)
         await self._session_store.save(session)
 
@@ -398,6 +440,56 @@ class Orchestrator:
             data_collected=session.collected_data.to_summary_dict(),
         )
 
+    async def _handle_limit_warning(self, session: Session, message: str) -> ChatResponse:
+        """Handle user's response to the limit reached warning."""
+        session.add_message("user", message)
+        
+        msg_lower = message.strip().lower()
+        is_yes = any(msg_lower.startswith(w) or msg_lower == w for w in ["yes", "y", "sure", "ok", "okay", "yeah", "yep"])
+        is_no = any(msg_lower.startswith(w) or msg_lower == w for w in ["no", "n", "nope", "cancel", "nah"])
+        
+        if is_yes and not is_no:
+            session.stage = ConversationStage.FINAL_INPUT
+            reply = "Please provide your complete requirements in a single message."
+            session.add_message("assistant", reply)
+            await self._session_store.save(session)
+        else:
+            session.stage = ConversationStage.COMPLETED
+            reply = "Thank you. Our team will follow up with you shortly."
+            session.add_message("assistant", reply)
+            await self._session_store.save(session)
+            
+            # Auto-trigger early exit process to send summary and email
+            self._run_background_task(self._process_early_exit(session))
+            
+        return ChatResponse(
+            reply=reply,
+            stage=session.stage,
+            data_collected=session.collected_data.to_summary_dict()
+        )
+
+    async def _handle_final_input(self, session: Session, message: str) -> ChatResponse:
+        """Handle the single final message from the user."""
+        session.add_message("user", message)
+        
+        # Try to extract data from this final message
+        result = await self._conversation_agent.process_message(session, message)
+        self._apply_extracted_data(session, result.extracted_data)
+        
+        session.stage = ConversationStage.COMPLETED
+        reply = "Thank you. Our team will follow up with you shortly."
+        session.add_message("assistant", reply)
+        await self._session_store.save(session)
+        
+        # Auto-trigger early exit process to send summary and email
+        self._run_background_task(self._process_early_exit(session))
+        
+        return ChatResponse(
+            reply=reply,
+            stage=session.stage,
+            data_collected=session.collected_data.to_summary_dict()
+        )
+
     async def _handle_completed(self, session: Session) -> ChatResponse:
         """Handle messages after the conversation is complete.
 
@@ -485,6 +577,29 @@ class Orchestrator:
 
         session.updated_at = datetime.utcnow()
 
+    def _check_stage_complete(self, session: Session) -> bool:
+        """Check if all required fields for the current stage are collected.
+
+        Args:
+            session: The session to check.
+
+        Returns:
+            True if the current stage is complete.
+        """
+        stage = session.stage
+        data = session.collected_data
+
+        if stage == ConversationStage.WELCOME:
+            return True
+        elif stage == ConversationStage.PERSONAL_INFO:
+            return data.personal_info.is_complete()
+        elif stage == ConversationStage.TECH_DISCOVERY:
+            return data.tech_discovery.is_complete()
+        elif stage == ConversationStage.SCOPE_PRICING:
+            return data.scope_pricing.is_complete()
+        
+        return False
+
     async def get_session(self, session_id: str) -> Session | None:
         """Get a session by ID (for API introspection).
 
@@ -502,7 +617,7 @@ class Orchestrator:
         if not session or session.stage in (ConversationStage.WELCOME, ConversationStage.COMPLETED):
             return False
             
-        asyncio.create_task(self._process_early_exit(session))
+        self._run_background_task(self._process_early_exit(session))
         return True
         
     async def _process_early_exit(self, session: Session) -> None:

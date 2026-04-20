@@ -112,8 +112,9 @@ export default function ChatWindow() {
   };
 
   // Send message
-  const handleSend = useCallback(async () => {
-    const trimmed = input.trim();
+  const handleSend = useCallback(async (messageOverride?: string) => {
+    const textToSend = messageOverride !== undefined ? messageOverride : input;
+    const trimmed = textToSend.trim();
     if (!trimmed || isLoading || !sessionId) return;
 
     setError(null);
@@ -126,11 +127,13 @@ export default function ChatWindow() {
       timestamp: new Date(),
     };
     setMessages((prev) => [...prev, userMsg]);
-    setInput("");
-
-    // Reset textarea height
-    if (inputRef.current) {
-      inputRef.current.style.height = "auto";
+    
+    if (messageOverride === undefined) {
+      setInput("");
+      // Reset textarea height
+      if (inputRef.current) {
+        inputRef.current.style.height = "auto";
+      }
     }
 
     setIsLoading(true);
@@ -337,45 +340,66 @@ export default function ChatWindow() {
 
       {/* Input Area */}
       <div className="input-area">
-        <div className="input-wrapper">
-          <textarea
-            ref={inputRef}
-            id="chat-input"
-            value={input}
-            onChange={handleInputChange}
-            onKeyDown={handleKeyDown}
-            placeholder={
-              currentStage === "completed"
-                ? "Session completed. Click 'New Chat' to start over."
-                : "Type your message..."
-            }
-            disabled={isLoading || currentStage === "completed"}
-            rows={1}
-          />
-          <button
-            className="send-btn"
-            onClick={handleSend}
-            disabled={!input.trim() || isLoading || currentStage === "completed"}
-            id="send-message-btn"
-            title="Send message"
-          >
-            {isLoading ? (
-              <div className="send-spinner"></div>
-            ) : (
-              <svg
-                width="20"
-                height="20"
-                viewBox="0 0 24 24"
-                fill="currentColor"
+        {currentStage === "limit_warning" ? (
+          <div className="limit-warning-options">
+            <button
+              className="option-btn"
+              onClick={() => handleSend("Yes")}
+              disabled={isLoading}
+            >
+              Yes
+            </button>
+            <button
+              className="option-btn"
+              onClick={() => handleSend("No")}
+              disabled={isLoading}
+            >
+              No
+            </button>
+          </div>
+        ) : (
+          <>
+            <div className="input-wrapper">
+              <textarea
+                ref={inputRef}
+                id="chat-input"
+                value={input}
+                onChange={handleInputChange}
+                onKeyDown={handleKeyDown}
+                placeholder={
+                  currentStage === "completed"
+                    ? "Session completed. Click 'New Chat' to start over."
+                    : "Type your message..."
+                }
+                disabled={isLoading || currentStage === "completed"}
+                rows={1}
+              />
+              <button
+                className="send-btn"
+                onClick={() => handleSend()}
+                disabled={!input.trim() || isLoading || currentStage === "completed"}
+                id="send-message-btn"
+                title="Send message"
               >
-                <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
-              </svg>
-            )}
-          </button>
-        </div>
-        <div className="input-hint">
-          Press <kbd>Enter</kbd> to send, <kbd>Shift+Enter</kbd> for new line
-        </div>
+                {isLoading ? (
+                  <div className="send-spinner"></div>
+                ) : (
+                  <svg
+                    width="20"
+                    height="20"
+                    viewBox="0 0 24 24"
+                    fill="currentColor"
+                  >
+                    <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
+                  </svg>
+                )}
+              </button>
+            </div>
+            <div className="input-hint">
+              Press <kbd>Enter</kbd> to send, <kbd>Shift+Enter</kbd> for new line
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

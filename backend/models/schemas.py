@@ -34,6 +34,8 @@ class ConversationStage(str, Enum):
     SCOPE_PRICING = "scope_pricing"
     SUMMARY = "summary"
     EMAIL = "email"
+    LIMIT_WARNING = "limit_warning"
+    FINAL_INPUT = "final_input"
     COMPLETED = "completed"
 
 

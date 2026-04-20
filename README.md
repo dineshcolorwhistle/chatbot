@@ -54,6 +54,8 @@ OLLAMA_MODEL=llama3.2
 CLOUD_API_KEY=your-key           # Only needed for cloud provider
 CLOUD_BASE_URL=https://api.openai.com/v1
 CLOUD_MODEL=gpt-4o-mini
+
+MAX_USER_MESSAGES=5              # Maximum number of standard interactions allowed per session
 ```
 
 ## Architecture

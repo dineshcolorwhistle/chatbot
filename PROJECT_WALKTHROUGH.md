@@ -140,6 +140,8 @@ The system uses **multiple specialized AI agents**, each handling a distinct res
          Stage 6: Email Notification (📧 Email Agent)
               ↓
           [End]
+
+*Note: If the user exceeds MAX_USER_MESSAGES (configurable, default: 5) during Stages 1-4, a Limit Warning is triggered, offering a Final Input stage before automatic completion.*
 ```
 
 **Stages 1–4:** Conversation Agent handles all dialogue  

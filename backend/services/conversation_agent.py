@@ -159,6 +159,16 @@ QUESTION_PATTERNS = [
     r"^(what's|how's|where's|who's|when's)\b",
 ]
 
+# Patterns that indicate a data-provision message even if it looks like a question
+DATA_PROVISION_PATTERNS = [
+    r"\bmy name is\b",
+    r"\bi am\b",
+    r"\bi'm\b",
+    r"\bcall me\b",
+    r"\bname's\b",
+    r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}",  # Email pattern
+]
+
 
 # ============================================
 # Irrelevant Question Patterns
@@ -373,15 +383,25 @@ class ConversationAgent:
                     "right now, but our team can definitely help with that."
                 )
 
+            # Even in question mode, try regex extraction for personal info
+            # so we don't lose data from hybrid messages
+            regex_data = self._regex_extract_personal_info(user_message)
+            should_advance = False
+            if regex_data:
+                logger.info("Regex extracted data from question: %s", list(regex_data.keys()))
+                should_advance = self._check_stage_completion(session, regex_data)
+
             # Append a gentle data nudge via code (not LLM)
-            nudge = self._build_gentle_nudge(session)
-            if nudge:
-                answer = f"{answer}\n\n{nudge}"
+            # but only if we still need data after this extraction
+            if not should_advance:
+                nudge = self._build_gentle_nudge_with_pending(session, regex_data)
+                if nudge:
+                    answer = f"{answer}\n\n{nudge}"
 
             return ConversationResult(
                 reply=answer,
-                extracted_data={},
-                should_advance=False,
+                extracted_data=regex_data,
+                should_advance=should_advance,
             )
 
         except (ConnectionError, RuntimeError) as e:
@@ -468,6 +488,17 @@ class ConversationAgent:
                 session.stage, extracted_data, user_message
             )
 
+            # Regex fallback: if LLM didn't extract personal info,
+            # try code-based regex extraction (reliable with small models)
+            if session.stage == ConversationStage.PERSONAL_INFO:
+                regex_data = self._regex_extract_personal_info(user_message)
+                for field, value in regex_data.items():
+                    if field not in validated_data:
+                        validated_data[field] = value
+                        logger.info(
+                            "Regex fallback extracted %s: %s", field, value
+                        )
+
             # Determine if stage should advance
             should_advance = stage_complete or self._check_stage_completion(
                 session, validated_data
@@ -501,6 +532,10 @@ class ConversationAgent:
         something (which should be answered) vs providing personal
         data (which should be extracted).
 
+        Data-provision patterns take priority: if the message contains
+        indicators like "my name is" or an email address, it's treated
+        as data provision even if the sentence also ends with "?".
+
         Args:
             message: The user's message text.
 
@@ -508,6 +543,13 @@ class ConversationAgent:
             True if the message appears to be a question.
         """
         msg_clean = message.strip().lower()
+
+        # Data provision patterns take priority over question patterns
+        # e.g. "My name is Karthick, is colorwhistle good?" → data, not question
+        for pattern in DATA_PROVISION_PATTERNS:
+            if re.search(pattern, msg_clean, re.IGNORECASE):
+                logger.debug("Data provision pattern matched — treating as data message")
+                return False
 
         # Check against question patterns
         for pattern in QUESTION_PATTERNS:
@@ -678,25 +720,45 @@ class ConversationAgent:
         Returns:
             A gentle data request string, or empty string if nothing needed.
         """
+        return self._build_gentle_nudge_with_pending(session, {})
+
+    def _build_gentle_nudge_with_pending(
+        self, session: Session, pending_data: dict
+    ) -> str:
+        """Build a gentle nudge accounting for both session data and pending extractions.
+
+        This prevents re-asking for data that was just extracted from
+        the current message but not yet persisted to the session.
+
+        Args:
+            session: The current session state.
+            pending_data: Data extracted from the current message (not yet in session).
+
+        Returns:
+            A gentle data request string, or empty string if nothing needed.
+        """
         stage = session.stage
 
         if stage == ConversationStage.PERSONAL_INFO:
             pi = session.collected_data.personal_info
-            if not pi.name:
+            has_name = pi.name or pending_data.get("name")
+            has_email = pi.email or pending_data.get("email")
+            if not has_name:
                 return "By the way, may I know your name? 😊"
-            elif not pi.email:
-                return f"Thanks, {pi.name}! Could you also share your email address so we can follow up? 😊"
+            elif not has_email:
+                name_to_use = pi.name or pending_data.get("name", "")
+                return f"Thanks, {name_to_use}! Could you also share your email address so we can follow up? 😊"
         elif stage == ConversationStage.TECH_DISCOVERY:
             td = session.collected_data.tech_discovery
-            if not td.project_type:
+            if not (td.project_type or pending_data.get("project_type")):
                 return "Also, could you tell me about the type of project you're looking for?"
-            elif not td.features:
+            elif not (td.features or pending_data.get("features")):
                 return "What key features are you looking for in your project?"
         elif stage == ConversationStage.SCOPE_PRICING:
             sp = session.collected_data.scope_pricing
-            if not sp.budget:
+            if not (sp.budget or pending_data.get("budget")):
                 return "Also, do you have a budget range in mind for this project?"
-            elif not sp.timeline:
+            elif not (sp.timeline or pending_data.get("timeline")):
                 return "And what's your ideal timeline for the project?"
 
         return ""
@@ -1142,3 +1204,52 @@ class ConversationAgent:
             return all([budget, timeline])
 
         return False
+
+    # ============================================
+    # Regex-Based Personal Data Extraction
+    # ============================================
+
+    def _regex_extract_personal_info(self, message: str) -> dict:
+        """Extract personal info (name, email) from user message using regex.
+
+        This is a fallback extraction method that doesn't depend on
+        the LLM producing valid JSON. It catches common patterns like
+        'my name is X' and email addresses.
+
+        Args:
+            message: The user's message text.
+
+        Returns:
+            Dictionary with extracted fields, empty if nothing found.
+        """
+        extracted: dict = {}
+        msg_lower = message.strip().lower()
+
+        # Extract name patterns
+        name_patterns = [
+            r"(?:my name is|i am|i'm|call me|name's|this is)\s+([A-Za-z][A-Za-z\s\.\-']{1,40})",
+        ]
+        for pattern in name_patterns:
+            match = re.search(pattern, message, re.IGNORECASE)
+            if match:
+                name_candidate = match.group(1).strip()
+                # Clean trailing words that aren't part of the name
+                name_candidate = re.split(
+                    r'\b(?:and|from|at|in|with|here|please|thanks|thank)\b',
+                    name_candidate, flags=re.IGNORECASE
+                )[0].strip()
+                if name_candidate and len(name_candidate) >= 2:
+                    extracted["name"] = name_candidate
+                    logger.info("Regex extracted name: %s", name_candidate)
+                break
+
+        # Extract email
+        email_match = re.search(
+            r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}',
+            message
+        )
+        if email_match:
+            extracted["email"] = email_match.group(0)
+            logger.info("Regex extracted email: %s", email_match.group(0))
+
+        return extracted

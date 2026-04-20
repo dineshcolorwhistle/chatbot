@@ -548,6 +548,40 @@
   color: var(--text-tertiary);
 }
 
+/* ---- Limit Warning Options ---- */
+
+.limit-warning-options {
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+  padding: 12px 0;
+}
+
+.option-btn {
+  padding: 10px 32px;
+  background: var(--bg-button);
+  color: var(--text-primary);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.option-btn:hover:not(:disabled) {
+  background: var(--accent-bg);
+  color: var(--accent-color);
+  border-color: var(--accent-border);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.option-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 /* ---- Responsive ---- */
 
 @media (max-width: 948px) {
