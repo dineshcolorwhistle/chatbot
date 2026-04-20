@@ -7,11 +7,10 @@ user messages — routes call the orchestrator, never agents directly.
 
 Responsibilities:
   - Manage session lifecycle (create, load, save)
-  - Route messages to the appropriate agent based on current stage
+  - Route messages to the Conversation Agent (single-block approach)
   - Apply extracted data from Conversation Agent to session
-  - Trigger stage transitions when data collection is complete
-  - Invoke Summarization Agent at stage 5
-  - Invoke Email Agent at stage 6
+  - Track user message count and enforce limits
+  - Trigger Summarization Agent and Email Agent at completion
   - Return structured responses to routes
 
 Design:
@@ -29,7 +28,6 @@ from models.schemas import (
     ChatResponse,
     ConversationStage,
     Session,
-    get_next_stage,
 )
 from providers.base import LLMProvider
 from services.conversation_agent import ConversationAgent
@@ -48,9 +46,7 @@ logger = logging.getLogger(__name__)
 WELCOME_MESSAGE = (
     "👋 Hello! Welcome to ColorWhistle. I'm your project consultant, "
     "and I'm here to help understand your project requirements.\n\n"
-    "I'll walk you through a quick consultation to learn about your "
-    "needs — it'll only take a few minutes. Let's get started!\n\n"
-    "Could you tell me your name?"
+    "How can I help you today?"
 )
 
 COMPLETED_MESSAGE = (
@@ -63,17 +59,17 @@ class Orchestrator:
     """Coordinates all agents and manages the conversation workflow.
 
     The orchestrator is the single entry point for processing user
-    messages. It determines which agent to invoke based on the current
-    conversation stage, applies extracted data, manages stage
-    transitions, and returns structured responses.
+    messages. It routes all messages through the Conversation Agent
+    (single-block approach), applies extracted data, tracks message
+    limits, and triggers summary/email at completion.
 
     This is code-driven logic — NOT LLM-powered. The orchestrator
     makes deterministic decisions about workflow control.
 
     Attributes:
-        _conversation_agent: Handles dialogue in stages 1-4.
-        _summarization_agent: Generates summaries at stage 5.
-        _email_agent: Composes emails at stage 6.
+        _conversation_agent: Handles all dialogue.
+        _summarization_agent: Generates summaries at completion.
+        _email_agent: Composes and sends emails at completion.
         _session_store: Persistence layer for sessions.
     """
 
@@ -114,14 +110,14 @@ class Orchestrator:
     async def process_message(
         self, session_id: str, message: str
     ) -> ChatResponse:
-        """Process a user message through the appropriate agent.
+        """Process a user message through the appropriate handler.
 
         This is the main entry point called by API routes.
         It handles the complete lifecycle:
           1. Load or create session
-          2. Route to the correct agent
+          2. Route to the correct handler
           3. Apply extracted data
-          4. Handle stage transitions
+          4. Track message limits
           5. Save session
           6. Return response
 
@@ -143,28 +139,14 @@ class Orchestrator:
             is_new,
         )
 
-        # 2. Handle new sessions with welcome
-        if is_new:
-            return await self._handle_welcome(session, message)
-
-        # 3. Route based on current stage
+        # 2. Route based on current stage
         stage = session.stage
 
-        if stage == ConversationStage.WELCOME:
+        if is_new or stage == ConversationStage.WELCOME:
             return await self._handle_welcome(session, message)
 
-        elif stage in (
-            ConversationStage.PERSONAL_INFO,
-            ConversationStage.TECH_DISCOVERY,
-            ConversationStage.SCOPE_PRICING,
-        ):
+        elif stage == ConversationStage.CONVERSATION:
             return await self._handle_conversation(session, message)
-
-        elif stage == ConversationStage.SUMMARY:
-            return await self._handle_summary(session, message)
-
-        elif stage == ConversationStage.EMAIL:
-            return await self._handle_email(session, message)
 
         elif stage == ConversationStage.LIMIT_WARNING:
             return await self._handle_limit_warning(session, message)
@@ -192,9 +174,9 @@ class Orchestrator:
     ) -> ChatResponse:
         """Handle the welcome stage.
 
-        For brand-new sessions, sends the welcome message.
-        For returning users who already got a welcome, transitions
-        to personal info and processes their message.
+        For brand-new sessions, sends the welcome message and
+        transitions to the CONVERSATION stage. Also processes
+        the user's first message through the conversation agent.
 
         Args:
             session: The current session.
@@ -208,8 +190,8 @@ class Orchestrator:
             session.add_message("assistant", WELCOME_MESSAGE)
             session.add_message("user", message)
 
-            # Advance to personal info stage
-            session.stage = ConversationStage.PERSONAL_INFO
+            # Transition to single conversation stage
+            session.stage = ConversationStage.CONVERSATION
 
             # Process the user's first message through conversation agent
             result = await self._conversation_agent.process_message(
@@ -228,17 +210,17 @@ class Orchestrator:
                 data_collected=session.collected_data.to_summary_dict(),
             )
 
-        # Already welcomed — process through conversation
-        session.stage = ConversationStage.PERSONAL_INFO
+        # Already welcomed — transition and process
+        session.stage = ConversationStage.CONVERSATION
         return await self._handle_conversation(session, message)
 
     async def _handle_conversation(
         self, session: Session, message: str
     ) -> ChatResponse:
-        """Handle conversation stages (personal info, tech discovery, scope).
+        """Handle the main conversation flow (single block).
 
         Routes the message through the Conversation Agent, applies
-        extracted data, and handles stage transitions.
+        extracted data, and checks message limits.
 
         Args:
             session: The current session.
@@ -247,10 +229,10 @@ class Orchestrator:
         Returns:
             ChatResponse with the agent's reply and updated state.
         """
-        # Check user message limit BEFORE adding this new message
+        # Count user messages BEFORE adding this new one
         user_msg_count = sum(1 for m in session.conversation_history if m.role == "user")
         
-        # Add user message to history (this makes the count go up by 1)
+        # Add user message to history
         session.add_message("user", message)
 
         # Process through Conversation Agent
@@ -261,43 +243,19 @@ class Orchestrator:
         # Apply extracted data to session
         self._apply_extracted_data(session, result.extracted_data)
 
-        # Check for stage advancement — also re-check with updated session
-        # data in case the agent checked before data was applied
-        should_advance = result.should_advance or self._check_stage_complete(session)
-
-        if should_advance:
-            next_stage = get_next_stage(session.stage)
-            if next_stage:
-                logger.info(
-                    "Stage transition: %s → %s (session: %s)",
-                    session.stage.value,
-                    next_stage.value,
-                    session.session_id,
-                )
-                session.stage = next_stage
-
-                if next_stage == ConversationStage.SUMMARY:
-                    session.add_message("assistant", result.reply)
-                    await self._session_store.save(session)
-                    return await self._handle_summary(session, "")
-
-        # If they haven't advanced to SUMMARY AND they reached the limit:
-        # Note: By the time this block runs, the new message has been added to history.
-        # If user_msg_count (count before adding message) >= app_config.max_user_messages
-        # wait! `user_msg_count` is the count BEFORE adding `message`. 
-        # If `user_msg_count` == max_user_messages, they already reached the limit previously, 
-        # but that shouldn't happen because they'd be in LIMIT_WARNING stage. 
-        # If they just reached it now, `len()` would be max, which means `user_msg_count == max - 1`.
-        # Wait, if `max_user_messages` = 5.
-        # Msg 1..5. Before Msg 5 is added, count is 4. Next count is 5. 
-        # So we want `user_msg_count + 1 >= app_config.max_user_messages`.
+        # Check if user reached the message limit
+        # user_msg_count was count BEFORE this message, so +1 = current total
         if user_msg_count + 1 >= app_config.max_user_messages:
             session.stage = ConversationStage.LIMIT_WARNING
-            reply = (
-                "You’ve reached the maximum number of interactions for this session. "
+            base_reply = (
+                "You've reached the maximum number of interactions for this session. "
                 "Our team will review your request and get back to you shortly.\n\n"
-                "Would you like to provide all remaining details in a single message so we can proceed? (Yes/No)"
             )
+            has_email = bool(session.collected_data.personal_info.email)
+            if not has_email:
+                reply = base_reply + "We noticed you haven't provided your email address. Would you like to provide your name and email in a single message so we can get in touch? (Yes/No)"
+            else:
+                reply = base_reply + "Would you like to provide any remaining details in a single message before we wrap up? (Yes/No)"
             session.add_message("assistant", reply)
             await self._session_store.save(session)
             return ChatResponse(
@@ -316,130 +274,6 @@ class Orchestrator:
             data_collected=session.collected_data.to_summary_dict(),
         )
 
-    async def _handle_summary(
-        self, session: Session, message: str
-    ) -> ChatResponse:
-        """Handle the summary stage.
-
-        If summary hasn't been generated yet, generates it.
-        If summary exists, the user is confirming or requesting changes.
-
-        Args:
-            session: The current session.
-            message: The user's message (empty for auto-trigger).
-
-        Returns:
-            ChatResponse with the summary or confirmation handling.
-        """
-        if not session.summary:
-            # Generate summary
-            logger.info(
-                "Generating summary for session %s", session.session_id
-            )
-            summary = await self._summarization_agent.generate_summary(session)
-            session.summary = summary
-
-            reply = (
-                "Great! I've gathered all the information I need. "
-                "Here's a summary of your project requirements:\n\n"
-                f"{summary}\n\n"
-                "Does this look correct? If you'd like to make any changes, "
-                "just let me know. Otherwise, type **'confirm'** or **'yes'** "
-                "to proceed."
-            )
-
-            session.add_message("assistant", reply)
-            await self._session_store.save(session)
-
-            return ChatResponse(
-                reply=reply,
-                stage=session.stage,
-                data_collected=session.collected_data.to_summary_dict(),
-            )
-
-        # Summary already exists — check for confirmation
-        if message:
-            session.add_message("user", message)
-
-        confirmation_words = {"yes", "confirm", "correct", "looks good", "ok", "okay", "sure", "proceed", "go ahead", "perfect", "that's right", "thats right"}
-        msg_lower = message.strip().lower()
-
-        if any(word in msg_lower for word in confirmation_words):
-            # User confirmed — advance to email stage
-            session.stage = ConversationStage.EMAIL
-
-            logger.info(
-                "Summary confirmed — advancing to email stage (session: %s)",
-                session.session_id,
-            )
-
-            # Auto-trigger email composition
-            return await self._handle_email(session, "")
-
-        else:
-            # User wants changes — let them know
-            reply = (
-                "I understand you'd like to make some adjustments. "
-                "Could you tell me specifically what needs to be changed? "
-                "Once we've made the updates, I'll regenerate the summary."
-            )
-
-            # For now, regenerate the summary on next message
-            # (In a more complex version, we'd parse what to change)
-            session.summary = None
-            session.add_message("assistant", reply)
-            await self._session_store.save(session)
-
-            return ChatResponse(
-                reply=reply,
-                stage=session.stage,
-                data_collected=session.collected_data.to_summary_dict(),
-            )
-
-    async def _handle_email(
-        self, session: Session, message: str
-    ) -> ChatResponse:
-        """Handle the email stage.
-
-        Triggers the Email Agent to compose and mock-send emails,
-        then transitions to the completed stage.
-
-        Args:
-            session: The current session.
-            message: The user's message (empty for auto-trigger).
-
-        Returns:
-            ChatResponse with the completion message.
-        """
-        logger.info(
-            "Composing and sending emails for session %s",
-            session.session_id,
-        )
-
-        email_result = await self._email_agent.compose_and_send(session)
-
-        reply_parts = [email_result.message]
-
-        if email_result.user_email:
-            reply_parts.append("📧 A confirmation email has been sent to your address, and our team has been notified about your project requirements.")
-        elif email_result.admin_email:
-            reply_parts.append("Our team has been notified about your project requirements.")
-
-        reply_parts.append("Thank you for your time! We look forward to working with you. If you have any questions in the meantime, feel free to reach out.\n\nHave a wonderful day! 👋")
-
-        reply = "\n\n".join(reply_parts)
-
-        # Transition to completed
-        session.stage = ConversationStage.COMPLETED
-        session.add_message("assistant", reply)
-        await self._session_store.save(session)
-
-        return ChatResponse(
-            reply=reply,
-            stage=session.stage,
-            data_collected=session.collected_data.to_summary_dict(),
-        )
-
     async def _handle_limit_warning(self, session: Session, message: str) -> ChatResponse:
         """Handle user's response to the limit reached warning."""
         session.add_message("user", message)
@@ -450,12 +284,16 @@ class Orchestrator:
         
         if is_yes and not is_no:
             session.stage = ConversationStage.FINAL_INPUT
-            reply = "Please provide your complete requirements in a single message."
+            has_email = bool(session.collected_data.personal_info.email)
+            if not has_email:
+                reply = "Please provide your name and email address, along with any final details, in a single message."
+            else:
+                reply = "Please provide your complete requirements in a single message."
             session.add_message("assistant", reply)
             await self._session_store.save(session)
         else:
             session.stage = ConversationStage.COMPLETED
-            reply = "Thank you. Our team will follow up with you shortly."
+            reply = "Thank you for chatting with us! Our team will follow up with you shortly. 👋"
             session.add_message("assistant", reply)
             await self._session_store.save(session)
             
@@ -477,7 +315,7 @@ class Orchestrator:
         self._apply_extracted_data(session, result.extracted_data)
         
         session.stage = ConversationStage.COMPLETED
-        reply = "Thank you. Our team will follow up with you shortly."
+        reply = "Thank you for sharing! Our team will review everything and follow up with you shortly. 👋"
         session.add_message("assistant", reply)
         await self._session_store.save(session)
         
@@ -514,8 +352,8 @@ class Orchestrator:
     ) -> None:
         """Apply extracted data from the Conversation Agent to the session.
 
-        Maps field names to the appropriate collected data model
-        based on the current conversation stage.
+        Maps field names to the appropriate collected data model.
+        All fields are extracted in any message — no stage gating.
 
         Args:
             session: The session to update.
@@ -524,7 +362,6 @@ class Orchestrator:
         if not extracted_data:
             return
 
-        stage = session.stage
         data = session.collected_data
 
         for field, value in extracted_data.items():
@@ -577,29 +414,6 @@ class Orchestrator:
 
         session.updated_at = datetime.utcnow()
 
-    def _check_stage_complete(self, session: Session) -> bool:
-        """Check if all required fields for the current stage are collected.
-
-        Args:
-            session: The session to check.
-
-        Returns:
-            True if the current stage is complete.
-        """
-        stage = session.stage
-        data = session.collected_data
-
-        if stage == ConversationStage.WELCOME:
-            return True
-        elif stage == ConversationStage.PERSONAL_INFO:
-            return data.personal_info.is_complete()
-        elif stage == ConversationStage.TECH_DISCOVERY:
-            return data.tech_discovery.is_complete()
-        elif stage == ConversationStage.SCOPE_PRICING:
-            return data.scope_pricing.is_complete()
-        
-        return False
-
     async def get_session(self, session_id: str) -> Session | None:
         """Get a session by ID (for API introspection).
 
@@ -621,7 +435,7 @@ class Orchestrator:
         return True
         
     async def _process_early_exit(self, session: Session) -> None:
-        """Background task to analyze intent and send emails on early exit."""
+        """Background task to generate summary and send emails on early exit."""
         logger.info("Processing early exit for session %s", session.session_id)
         
         if not session.summary and len(session.conversation_history) > 2:

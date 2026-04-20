@@ -7,7 +7,6 @@
  *   - Typing indicator during AI processing
  *   - Auto-scroll to latest message
  *   - Session management (start, reset)
- *   - Stage progress indicator
  */
 
 import { useState, useRef, useEffect, useCallback } from "react";
@@ -31,21 +30,7 @@ interface Message {
   timestamp: Date;
 }
 
-interface StageInfo {
-  key: string;
-  label: string;
-  icon: string;
-}
 
-const STAGES: StageInfo[] = [
-  { key: "welcome", label: "Welcome", icon: "👋" },
-  { key: "personal_info", label: "Personal Info", icon: "👤" },
-  { key: "tech_discovery", label: "Tech Discovery", icon: "💻" },
-  { key: "scope_pricing", label: "Scope & Budget", icon: "📊" },
-  { key: "summary", label: "Summary", icon: "📋" },
-  { key: "email", label: "Email", icon: "📧" },
-  { key: "completed", label: "Complete", icon: "✅" },
-];
 
 // ============================================
 // Component
@@ -206,8 +191,7 @@ export default function ChatWindow() {
     setInput("");
   };
 
-  // Get current stage index for progress
-  const stageIndex = STAGES.findIndex((s) => s.key === currentStage);
+
 
   return (
     <div className="chat-container">

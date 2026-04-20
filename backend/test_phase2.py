@@ -2,7 +2,7 @@
 
 import asyncio
 from models.schemas import (
-    ConversationStage, get_next_stage,
+    ConversationStage,
     PersonalInfo, TechDiscovery, ScopePricing, CollectedData,
     Session, ChatRequest, ChatResponse,
 )
@@ -17,8 +17,7 @@ async def test_all():
     # 1. Stage enum
     print("\n1. Conversation Stages:")
     for stage in ConversationStage:
-        next_s = get_next_stage(stage)
-        print(f"   {stage.value} -> {next_s.value if next_s else 'END'}")
+        print(f"   {stage.value}")
 
     # 2. Personal info completion check
     print("\n2. PersonalInfo model:")

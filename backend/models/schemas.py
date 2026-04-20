@@ -18,55 +18,29 @@ from pydantic import BaseModel, Field
 
 
 # ============================================
-# Conversation Stages
+# Conversation Stages — Simplified single-block
 # ============================================
 
 class ConversationStage(str, Enum):
-    """Defines the sequential stages of the lead qualification flow.
+    """Defines the conversation lifecycle stages.
 
-    The orchestrator uses this to determine which agent to invoke
-    and when to transition between stages.
+    Simplified from the old stage-based (welcome → personal_info →
+    tech_discovery → scope_pricing) flow into a single-block approach.
+    The conversation agent handles everything in CONVERSATION stage.
     """
 
     WELCOME = "welcome"
+    CONVERSATION = "conversation"          # Single block — replaces all old stages
+    LIMIT_WARNING = "limit_warning"
+    FINAL_INPUT = "final_input"
+    SUMMARY = "summary"
+    EMAIL = "email"
+    COMPLETED = "completed"
+
+    # Legacy stage aliases — kept for backward compatibility with frontend
     PERSONAL_INFO = "personal_info"
     TECH_DISCOVERY = "tech_discovery"
     SCOPE_PRICING = "scope_pricing"
-    SUMMARY = "summary"
-    EMAIL = "email"
-    LIMIT_WARNING = "limit_warning"
-    FINAL_INPUT = "final_input"
-    COMPLETED = "completed"
-
-
-# Stage ordering for sequential transitions
-STAGE_ORDER: list[ConversationStage] = [
-    ConversationStage.WELCOME,
-    ConversationStage.PERSONAL_INFO,
-    ConversationStage.TECH_DISCOVERY,
-    ConversationStage.SCOPE_PRICING,
-    ConversationStage.SUMMARY,
-    ConversationStage.EMAIL,
-    ConversationStage.COMPLETED,
-]
-
-
-def get_next_stage(current: ConversationStage) -> ConversationStage | None:
-    """Get the next stage in the conversation flow.
-
-    Args:
-        current: The current conversation stage.
-
-    Returns:
-        The next ConversationStage, or None if already at the final stage.
-    """
-    try:
-        current_index = STAGE_ORDER.index(current)
-        if current_index < len(STAGE_ORDER) - 1:
-            return STAGE_ORDER[current_index + 1]
-        return None
-    except ValueError:
-        return None
 
 
 # ============================================
@@ -92,10 +66,10 @@ class ConversationMessage(BaseModel):
 # ============================================
 
 class PersonalInfo(BaseModel):
-    """Personal details collected during Stage 2.
+    """Personal details collected during conversation.
 
-    All fields are optional — they get populated one at a time
-    as the conversation progresses.
+    All fields are optional — they get populated as the
+    conversation progresses.
     """
 
     name: str | None = None
@@ -121,7 +95,7 @@ class PersonalInfo(BaseModel):
 
 
 class TechDiscovery(BaseModel):
-    """Technical requirements collected during Stage 3.
+    """Technical requirements collected during conversation.
 
     All fields are optional — populated through conversation.
     """
@@ -149,7 +123,7 @@ class TechDiscovery(BaseModel):
 
 
 class ScopePricing(BaseModel):
-    """Scope and pricing details collected during Stage 4.
+    """Scope and pricing details collected during conversation.
 
     All fields are optional — populated through conversation.
     """
@@ -243,7 +217,7 @@ class Session(BaseModel):
         stage: Current conversation stage.
         collected_data: All data gathered from the user so far.
         conversation_history: Full message history (user + assistant).
-        summary: Generated summary text (populated at Stage 5).
+        summary: Generated summary text (populated at completion).
         created_at: When the session was created.
         updated_at: When the session was last updated.
     """

@@ -1,19 +1,21 @@
 """
 Conversation Agent — 🗣️ LLM-Powered Dialogue Agent
 
-Handles all user-facing conversation during stages 1–4:
-  - Welcome (stage 1)
-  - Personal Information (stage 2)
-  - Technical Discovery (stage 3)
-  - Scope & Pricing (stage 4)
+Single-block conversational agent that handles all user interactions.
+No stage-based routing — the agent naturally responds to user queries
+and extracts structured data (name, email, project details) as the
+conversation progresses.
 
-The agent builds dynamic system prompts based on the current stage
-and collected data, then uses the LLM to generate contextually
-appropriate responses while extracting structured data from user input.
+Key behaviors:
+  - Always answers the user's question FIRST
+  - Extracts name, email, and project details from any message
+  - Gently nudges for name/email before chat closes (without repeating)
+  - Redirects budget/pricing questions to the human team
+  - Filters irrelevant off-topic questions
 
 Design:
   - Receives LLMProvider via constructor (no global state)
-  - Returns AgentResult with both reply text and extracted data
+  - Returns ConversationResult with both reply text and extracted data
   - Uses JSON-structured LLM responses for reliable data extraction
   - Falls back to raw text response if JSON parsing fails
   - Includes intent detection for question vs data-provision messages
@@ -25,7 +27,7 @@ import logging
 import re
 from dataclasses import dataclass, field
 
-from models.schemas import ConversationStage, Session
+from models.schemas import Session
 from providers.base import LLMProvider, LLMMessage
 
 logger = logging.getLogger(__name__)
@@ -44,17 +46,14 @@ class ConversationResult:
         extracted_data: Dictionary of field-value pairs extracted from
                         the user's message. Keys match the field names
                         in the collected data models.
-        should_advance: Whether the agent recommends advancing to
-                        the next conversation stage.
     """
 
     reply: str
     extracted_data: dict = field(default_factory=dict)
-    should_advance: bool = False
 
 
 # ============================================
-# System Prompts — Simplified for small models
+# System Prompt — Single unified prompt
 # ============================================
 
 PERSONA_PROMPT = """You are a friendly, professional project consultant for ColorWhistle, a software development company.
@@ -65,87 +64,32 @@ STRICT RULES:
 - When greeting the user, you MUST start your message with the name "ColorWhistle" (e.g. "Welcome to ColorWhistle!", "Hello from ColorWhistle!").
 - Wherever appropriate and needed, use the name "ColorWhistle".
 - Never mention being an AI or LLM.
-- Ask only ONE question at a time.
-- ALWAYS answer the user's question or respond to their message FIRST before requesting any information.
+- ALWAYS answer the user's question or respond to their message FIRST.
 - NEVER suggest any price or costing.
-- If the user asks for the price of development, respond with: "Since every project is unique, our pricing varies based on your specific requirements. Once we gather all the details, our respective expert will contact you with a customized proposal."
-- Do NOT forcefully ask for technical details. Try to fetch them from the user's input, and if it's not clear, ask politely.
-- If the user asks a question about ColorWhistle services, answer it using ONLY the knowledge base context provided below (if any). If no relevant knowledge base context is available, say: "I don't have specific details about that right now, but I can have our team follow up with you on this. Let's continue with your project details."
+- If the user asks about budget or pricing, respond with: "Our team will reach out and discuss about the budget with you."
+- Try to understand the technical details from the user's input, but do NOT forcefully ask for them.
+- If the user asks a question about ColorWhistle services, answer it using ONLY the knowledge base context provided below (if any). If no relevant knowledge base context is available, say: "I don't have specific details about that right now, but I can have our team follow up with you on this."
 - If the user asks something completely unrelated to web development or ColorWhistle, politely steer back to the project consultation.
 - NEVER make up or guess information about ColorWhistle's services, pricing, or capabilities.
-- Do NOT ask for phone number or company name. Only collect Name and Email.
-- If the user refuses to share details, respect their choice and continue helping them."""
-
-STAGE_PROMPTS: dict[ConversationStage, str] = {
-    ConversationStage.WELCOME: """
-You are greeting a new visitor. Welcome them warmly (starting with the name "ColorWhistle", e.g., "Welcome to ColorWhistle!", "Hello from ColorWhistle!") and ask for their name to get started.
-""",
-
-    ConversationStage.PERSONAL_INFO: """
-You are collecting the user's contact details.
-
-PRIMARY RULE: ALWAYS answer the user's question or respond to their message FIRST. Only AFTER you have answered, politely request their details. NEVER prioritize data collection over responding helpfully.
-
-WHAT TO COLLECT (one at a time):
-1. Full Name
-2. Email Address
-
-Do NOT ask for phone number or company name.
-
-BEHAVIOR RULES:
-- If the user asks a question, answer it thoroughly FIRST, then gently ask for their name or email.
-- If the user refuses to share details, continue the conversation normally. Do NOT repeat the request or force them.
-- Do NOT try to extract personal info from questions — only extract from clear answers like "My name is John" or "john@email.com".
-- Keep a natural, helpful tone. The user should feel assisted, not interrogated.
-""",
-
-    ConversationStage.TECH_DISCOVERY: """
-You are learning about the user's project. You need: project type and key features.
-
-WHAT TO COLLECT:
-1. Project Type (web app, mobile app, e-commerce, API, etc.)
-2. Key Features they need
-3. Tech stack preferences (optional)
-4. Third-party integrations (optional)
-
-Do NOT forcefully interrogate them about technical details. Read their input and ask conversational, polite questions to gently gather these points. Ask about their project type first, then features.
-""",
-
-    ConversationStage.SCOPE_PRICING: """
-You are discussing project scope. You need: budget range and timeline.
-
-WHAT TO COLLECT:
-1. Budget Range — be diplomatic, offer ranges like "under $5K, $5K-$15K, or $15K+"
-2. Timeline — when they need it delivered (weeks/months)
-3. MVP or production-ready (optional)
-4. Priority features (optional)
-
-When you have budget and timeline, indicate you have everything needed.
-""",
-}
+- IMPORTANT: Do NOT ask the user any questions like "What is your name?", "What is your email?", or "What are your features?". The automated system will append polite requests to the end of your response when needed.
+- ONLY generate the consultant's immediate reply. NEVER simulate, predict, or write out the user's next response. Stop generating immediately after your own reply."""
 
 
 # ============================================
-# JSON Extraction Instruction — kept as simple
-# as possible for small models
+# JSON Extraction Instruction
 # ============================================
 
 DATA_EXTRACTION_INSTRUCTION = """
 RESPOND IN THIS EXACT JSON FORMAT:
-{"response": "your reply here", "extracted_data": {}, "stage_complete": false}
+{"response": "your reply here", "extracted_data": {}}
 
 RULES FOR extracted_data:
 - ONLY include data the user CLEARLY provided in their CURRENT message.
 - If the user asked a question, set extracted_data to {} (empty).
 - Do NOT guess or invent data.
+- Do NOT simulate or predict the user's next response inside the "response" property. Limit the "response" string solely to the consultant's immediate reply.
+- Use field names: "name", "email", "project_type", "tech_stack", "features", "integrations", "budget", "timeline"
 """
-
-# Field names per stage for the JSON extraction
-STAGE_FIELD_HINTS: dict[ConversationStage, str] = {
-    ConversationStage.PERSONAL_INFO: 'Use field names: "name", "email"',
-    ConversationStage.TECH_DISCOVERY: 'Use field names: "project_type", "tech_stack", "features", "integrations"',
-    ConversationStage.SCOPE_PRICING: 'Use field names: "budget", "timeline", "mvp_or_production", "priority_features"',
-}
 
 
 # ============================================
@@ -172,8 +116,6 @@ DATA_PROVISION_PATTERNS = [
 
 # ============================================
 # Irrelevant Question Patterns
-# Catches off-topic questions BEFORE they
-# reach the LLM to prevent hallucinated answers
 # ============================================
 
 IRRELEVANT_PATTERNS = [
@@ -209,7 +151,6 @@ IRRELEVANT_PATTERNS = [
 ]
 
 # Keywords that indicate a RELEVANT question (about services, web dev, project)
-# If any of these appear, the question is NOT irrelevant even if it matches above
 RELEVANT_KEYWORDS = [
     "colorwhistle", "project", "website", "web app", "mobile app",
     "development", "design", "service", "pricing", "cost", "budget",
@@ -221,24 +162,7 @@ RELEVANT_KEYWORDS = [
     "frontend", "backend", "fullstack", "full-stack",
 ]
 
-# Stage-aware redirect messages
-STAGE_REDIRECT_MESSAGES: dict[ConversationStage, str] = {
-    ConversationStage.PERSONAL_INFO: (
-        "I appreciate your curiosity, but I'm not able to help with that! 😊 "
-        "I'm here to assist with your project consultation. "
-        "Could you share your **{missing}** so we can continue?"
-    ),
-    ConversationStage.TECH_DISCOVERY: (
-        "That's outside my area of expertise! 😊 "
-        "Let's get back to your project — "
-        "could you tell me about your **{missing}**?"
-    ),
-    ConversationStage.SCOPE_PRICING: (
-        "I wish I could help with that, but my focus is on your project! 😊 "
-        "Let's discuss your **{missing}** to wrap up the consultation."
-    ),
-}
-
+# Default redirect for irrelevant questions
 DEFAULT_REDIRECT = (
     "I appreciate the question, but that's outside what I can help with! 😊 "
     "I'm your project consultant at ColorWhistle, and I'm here to understand "
@@ -249,9 +173,10 @@ DEFAULT_REDIRECT = (
 class ConversationAgent:
     """LLM-powered agent that leads the conversation with users.
 
-    Manages natural dialogue across stages 1-4, extracting structured
-    data from free-form user responses while maintaining a friendly,
-    professional tone.
+    Single-block conversational agent — no stage-based routing.
+    Responds naturally to user messages, extracts structured data
+    (name, email, project details) as available, and gently nudges
+    for contact info before the chat limit is reached.
 
     Optionally integrates with the KnowledgeBase for RAG-augmented
     responses about company details, services, and pricing.
@@ -270,6 +195,21 @@ class ConversationAgent:
         """
         self._llm = llm_provider
         self._knowledge_base = knowledge_base
+
+    def _clean_history_content(self, content: str) -> str:
+        """Remove appended automated nudges from history so the LLM doesn't learn and parrot them."""
+        nudges = [
+            r"By the way, may I know your name\? 😊",
+            r"By the way, when you're ready, could you please share your name\? 😊",
+            r"Thanks, .*? Could you also share your email address so we can follow up\? 😊",
+            r"Thanks, .*?! Could you also share your email address so we can follow up\? 😊",
+            r"Before we wrap up, could you share your name so we can personalize your experience\? 😊",
+            r"Before we wrap up, could you please share your email address so our team can follow up with you\? 😊",
+        ]
+        cleansed = content
+        for nudge in nudges:
+            cleansed = re.sub(nudge, "", cleansed, flags=re.IGNORECASE).strip()
+        return cleansed
 
     async def process_message(
         self,
@@ -290,8 +230,7 @@ class ConversationAgent:
             user_message: The user's latest message.
 
         Returns:
-            ConversationResult with the reply, extracted data, and
-            stage advancement recommendation.
+            ConversationResult with the reply and extracted data.
         """
         # Detect if the user is asking a question vs providing data
         is_question = self._is_question(user_message)
@@ -302,11 +241,9 @@ class ConversationAgent:
             # Intercept irrelevant questions BEFORE they reach the LLM
             if self._is_irrelevant_question(user_message):
                 logger.info("Irrelevant question detected — returning redirect")
-                redirect_reply = self._get_redirect_message(session)
                 return ConversationResult(
-                    reply=redirect_reply,
+                    reply=DEFAULT_REDIRECT,
                     extracted_data={},
-                    should_advance=False,
                 )
 
             logger.info("Relevant question — using answer-first flow")
@@ -358,24 +295,33 @@ class ConversationAgent:
         history = session.get_history_for_llm()
         recent_history = history[-6:] if len(history) > 6 else history
         for msg in recent_history:
-            messages.append(LLMMessage(role=msg["role"], content=msg["content"]))
+            content = msg["content"]
+            if msg["role"] == "assistant":
+                content = self._clean_history_content(content)
+            if content:
+                messages.append(LLMMessage(role=msg["role"], content=content))
 
         messages.append(LLMMessage(role="user", content=user_message))
 
         try:
-            llm_response = await self._llm.generate(
-                messages=messages,
-                temperature=0.4,
-            )
-            answer = llm_response.content.strip()
+            # Hardcode budget response to guarantee compliance with business rules
+            is_budget_question = bool(re.search(r"\b(budget|cost|price|pricing|how much|amount)\b", user_message, re.IGNORECASE))
+            if is_budget_question:
+                answer = "Our team will reach out and discuss about the budget with you."
+            else:
+                llm_response = await self._llm.generate(
+                    messages=messages,
+                    temperature=0.4,
+                )
+                answer = llm_response.content.strip()
 
-            logger.debug(
-                "Question answer raw response: %s",
-                answer[:300],
-            )
+                logger.debug(
+                    "Question answer raw response: %s",
+                    answer[:300],
+                )
 
-            # Clean up: strip any JSON artifacts the model may produce
-            answer = self._clean_answer_response(answer)
+                # Clean up: strip any JSON artifacts the model may produce
+                answer = self._clean_answer_response(answer)
 
             if not answer:
                 answer = (
@@ -386,22 +332,17 @@ class ConversationAgent:
             # Even in question mode, try regex extraction for personal info
             # so we don't lose data from hybrid messages
             regex_data = self._regex_extract_personal_info(user_message)
-            should_advance = False
             if regex_data:
                 logger.info("Regex extracted data from question: %s", list(regex_data.keys()))
-                should_advance = self._check_stage_completion(session, regex_data)
 
-            # Append a gentle data nudge via code (not LLM)
-            # but only if we still need data after this extraction
-            if not should_advance:
-                nudge = self._build_gentle_nudge_with_pending(session, regex_data)
-                if nudge:
-                    answer = f"{answer}\n\n{nudge}"
+            # Append gentle nudge for name/email if still missing
+            nudge = self._build_gentle_nudge(session, regex_data)
+            if nudge and nudge not in answer:
+                answer = f"{answer}\n\n{nudge}"
 
             return ConversationResult(
                 reply=answer,
                 extracted_data=regex_data,
-                should_advance=should_advance,
             )
 
         except (ConnectionError, RuntimeError) as e:
@@ -412,7 +353,6 @@ class ConversationAgent:
                     "right now. Could you please try again?"
                 ),
                 extracted_data={},
-                should_advance=False,
             )
 
     async def _handle_data_message(
@@ -430,8 +370,7 @@ class ConversationAgent:
             user_message: The user's message (not a question).
 
         Returns:
-            ConversationResult with reply, extracted data, and
-            stage advancement recommendation.
+            ConversationResult with reply and extracted data.
         """
         # Query knowledge base for relevant context (RAG)
         rag_context = ""
@@ -459,7 +398,11 @@ class ConversationAgent:
         history = session.get_history_for_llm()
         recent_history = history[-10:] if len(history) > 10 else history
         for msg in recent_history:
-            messages.append(LLMMessage(role=msg["role"], content=msg["content"]))
+            content = msg["content"]
+            if msg["role"] == "assistant":
+                content = self._clean_history_content(content)
+            if content:
+                messages.append(LLMMessage(role=msg["role"], content=content))
 
         # Add the current user message
         messages.append(LLMMessage(role="user", content=user_message))
@@ -473,41 +416,40 @@ class ConversationAgent:
             raw_content = llm_response.content
 
             logger.debug(
-                "Conversation Agent raw LLM response (stage: %s): %s",
-                session.stage.value,
+                "Conversation Agent raw LLM response: %s",
                 raw_content[:300],
             )
 
             # Parse the structured response
-            reply, extracted_data, stage_complete = self._parse_llm_response(
-                raw_content
-            )
+            reply, extracted_data = self._parse_llm_response(raw_content)
+
+            # Enforce budget rule for hybrid messages (e.g. "I am Bob. How much does it cost?")
+            is_budget_inquiry = bool(re.search(r"\b(budget|cost|price|pricing|how much|amount)\b", user_message, re.IGNORECASE))
+            if is_budget_inquiry and "?" in user_message:
+                reply = "Our team will reach out and discuss about the budget with you."
 
             # Validate extracted data — reject garbage
             validated_data = self._validate_extracted_data(
-                session.stage, extracted_data, user_message
+                extracted_data, user_message
             )
 
-            # Regex fallback: if LLM didn't extract personal info,
-            # try code-based regex extraction (reliable with small models)
-            if session.stage == ConversationStage.PERSONAL_INFO:
-                regex_data = self._regex_extract_personal_info(user_message)
-                for field, value in regex_data.items():
-                    if field not in validated_data:
-                        validated_data[field] = value
-                        logger.info(
-                            "Regex fallback extracted %s: %s", field, value
-                        )
+            # Regex fallback: try code-based regex extraction (reliable with small models)
+            regex_data = self._regex_extract_personal_info(user_message)
+            for field_name, value in regex_data.items():
+                if field_name not in validated_data:
+                    validated_data[field_name] = value
+                    logger.info(
+                        "Regex fallback extracted %s: %s", field_name, value
+                    )
 
-            # Determine if stage should advance
-            should_advance = stage_complete or self._check_stage_completion(
-                session, validated_data
-            )
+            # Append gentle nudge for name/email if still missing
+            nudge = self._build_gentle_nudge(session, validated_data)
+            if nudge and nudge not in reply:
+                reply = f"{reply}\n\n{nudge}"
 
             return ConversationResult(
                 reply=reply,
                 extracted_data=validated_data,
-                should_advance=should_advance,
             )
 
         except (ConnectionError, RuntimeError) as e:
@@ -518,7 +460,6 @@ class ConversationAgent:
                     "right now. Could you please try again?"
                 ),
                 extracted_data={},
-                should_advance=False,
             )
 
     # ============================================
@@ -545,7 +486,6 @@ class ConversationAgent:
         msg_clean = message.strip().lower()
 
         # Data provision patterns take priority over question patterns
-        # e.g. "My name is Karthick, is colorwhistle good?" → data, not question
         for pattern in DATA_PROVISION_PATTERNS:
             if re.search(pattern, msg_clean, re.IGNORECASE):
                 logger.debug("Data provision pattern matched — treating as data message")
@@ -562,12 +502,7 @@ class ConversationAgent:
         """Detect if a question is irrelevant to the project consultation.
 
         Catches off-topic questions (time, weather, math, sports, etc.)
-        BEFORE they reach the LLM. This prevents hallucinated answers
-        and saves unnecessary API calls.
-
-        A question is considered irrelevant if:
-          1. It matches any IRRELEVANT_PATTERNS, AND
-          2. It does NOT contain any RELEVANT_KEYWORDS
+        BEFORE they reach the LLM.
 
         Args:
             message: The user's message text.
@@ -578,7 +513,6 @@ class ConversationAgent:
         msg_lower = message.strip().lower()
 
         # First check: does it contain any relevant keywords?
-        # If yes, treat it as relevant regardless of pattern matches
         for keyword in RELEVANT_KEYWORDS:
             if keyword in msg_lower:
                 logger.debug(
@@ -598,84 +532,14 @@ class ConversationAgent:
 
         return False
 
-    def _get_redirect_message(self, session: Session) -> str:
-        """Generate a stage-aware redirect message for irrelevant questions.
-
-        Builds a friendly redirect that reminds the user what
-        information is still needed for the current stage.
-
-        Args:
-            session: The current session state.
-
-        Returns:
-            A polite redirect message string.
-        """
-        stage = session.stage
-        template = STAGE_REDIRECT_MESSAGES.get(stage)
-
-        if not template:
-            return DEFAULT_REDIRECT
-
-        # Determine what's still missing for the current stage
-        missing = self._get_missing_fields(session)
-
-        if missing:
-            return template.format(missing=missing)
-
-        return DEFAULT_REDIRECT
-
-    def _get_missing_fields(self, session: Session) -> str:
-        """Get a human-readable string of missing fields for the current stage.
-
-        Args:
-            session: The current session state.
-
-        Returns:
-            A string describing what's still needed, e.g. "email and phone number".
-        """
-        stage = session.stage
-        data = session.collected_data
-        missing: list[str] = []
-
-        if stage == ConversationStage.PERSONAL_INFO:
-            if not data.personal_info.name:
-                missing.append("name")
-            if not data.personal_info.email:
-                missing.append("email address")
-
-        elif stage == ConversationStage.TECH_DISCOVERY:
-            if not data.tech_discovery.project_type:
-                missing.append("project type")
-            if not data.tech_discovery.features:
-                missing.append("key features")
-
-        elif stage == ConversationStage.SCOPE_PRICING:
-            if not data.scope_pricing.budget:
-                missing.append("budget range")
-            if not data.scope_pricing.timeline:
-                missing.append("timeline")
-
-        if not missing:
-            return ""
-
-        if len(missing) == 1:
-            return missing[0]
-        elif len(missing) == 2:
-            return f"{missing[0]} and {missing[1]}"
-        else:
-            return ", ".join(missing[:-1]) + f", and {missing[-1]}"
-
     # ============================================
-    # System Prompt Builder
+    # System Prompt Builders
     # ============================================
 
     def _build_question_prompt(
         self, session: Session, rag_context: str = ""
     ) -> str:
-        """Build a SIMPLE prompt focused ONLY on answering the user's question.
-
-        This is used for the question-answering pass. The prompt is kept
-        deliberately simple so small models (0.5B-3B) can follow it.
+        """Build a prompt focused ONLY on answering the user's question directly.
 
         Args:
             session: The current session state.
@@ -687,18 +551,20 @@ class ConversationAgent:
         parts: list[str] = [
             "You are a helpful human project consultant for ColorWhistle, a software development company.",
             "",
-            "YOUR ONLY TASK: Answer the user's question in 2-3 sentences.",
+            "YOUR TASK: Answer the user's question in 2-3 sentences FIRST.",
             "Use the company information below if available.",
             "If you don't have the answer, say: \"I don't have specific details about that right now, but I can have our team follow up with you.\"",
             "",
             "RULES:",
-            "- Answer the question directly. Do NOT ask for name, email, or any personal information.",
+            "- Answer the user's question directly.",
+            "- Do NOT ask the user for their name, email, or any missing information. Our automated system will append this.",
             "- Do NOT output JSON. Just write a plain text answer.",
             "- Keep it short: 2-3 sentences maximum.",
             "- Do NOT say you are an AI. Act completely like a human.",
             "- Make sure to use the name 'ColorWhistle' where applicable.",
-            "- NEVER suggest any price or costing. If asked about pricing, politely state that our expert team will contact them with a custom proposal as pricing varies.",
+            "- CRITICAL: If the user asks about budget or pricing, respond EXACTLY with: 'Our team will reach out and discuss about the budget with you.'",
             "- NEVER make up information about ColorWhistle. Only use the company info below.",
+            "- ONLY generate the consultant's immediate reply. NEVER simulate, predict, or write out the user's next response. Stop generating immediately after your own reply.",
         ]
 
         if rag_context:
@@ -708,110 +574,13 @@ class ConversationAgent:
 
         return "\n".join(parts)
 
-    def _build_gentle_nudge(self, session: Session) -> str:
-        """Build a code-generated gentle nudge for missing data.
-
-        This is appended to the question answer via code, NOT
-        generated by the LLM, so the nudge is always correct.
-
-        Args:
-            session: The current session state.
-
-        Returns:
-            A gentle data request string, or empty string if nothing needed.
-        """
-        return self._build_gentle_nudge_with_pending(session, {})
-
-    def _build_gentle_nudge_with_pending(
-        self, session: Session, pending_data: dict
-    ) -> str:
-        """Build a gentle nudge accounting for both session data and pending extractions.
-
-        This prevents re-asking for data that was just extracted from
-        the current message but not yet persisted to the session.
-
-        Args:
-            session: The current session state.
-            pending_data: Data extracted from the current message (not yet in session).
-
-        Returns:
-            A gentle data request string, or empty string if nothing needed.
-        """
-        stage = session.stage
-
-        if stage == ConversationStage.PERSONAL_INFO:
-            pi = session.collected_data.personal_info
-            has_name = pi.name or pending_data.get("name")
-            has_email = pi.email or pending_data.get("email")
-            if not has_name:
-                return "By the way, may I know your name? 😊"
-            elif not has_email:
-                name_to_use = pi.name or pending_data.get("name", "")
-                return f"Thanks, {name_to_use}! Could you also share your email address so we can follow up? 😊"
-        elif stage == ConversationStage.TECH_DISCOVERY:
-            td = session.collected_data.tech_discovery
-            if not (td.project_type or pending_data.get("project_type")):
-                return "Also, could you tell me about the type of project you're looking for?"
-            elif not (td.features or pending_data.get("features")):
-                return "What key features are you looking for in your project?"
-        elif stage == ConversationStage.SCOPE_PRICING:
-            sp = session.collected_data.scope_pricing
-            if not (sp.budget or pending_data.get("budget")):
-                return "Also, do you have a budget range in mind for this project?"
-            elif not (sp.timeline or pending_data.get("timeline")):
-                return "And what's your ideal timeline for the project?"
-
-        return ""
-
-    def _clean_answer_response(self, raw: str) -> str:
-        """Clean up an answer-only response from the LLM.
-
-        Small models may still output JSON or markdown even when
-        told not to. This strips those artifacts.
-
-        Args:
-            raw: The raw LLM response.
-
-        Returns:
-            Clean plain-text answer.
-        """
-        text = raw.strip()
-
-        # Try to extract from JSON if the model still outputs it
-        try:
-            json_match = re.search(r'"response"\s*:\s*"(.*?)"', text, re.DOTALL)
-            if json_match:
-                text = json_match.group(1)
-                # Unescape JSON string
-                text = text.replace('\\n', '\n').replace('\\"', '"')
-        except Exception:
-            pass
-
-        # Remove markdown code blocks
-        text = re.sub(r"```(?:json)?.*?```", "", text, flags=re.DOTALL).strip()
-
-        # Remove leftover JSON artifacts
-        text = re.sub(r'\{\s*"response".*', "", text, flags=re.DOTALL).strip()
-        text = re.sub(r'\{\s*"extracted_data".*', "", text, flags=re.DOTALL).strip()
-
-        # Remove any lines that look like JSON keys
-        lines = text.split("\n")
-        clean_lines = [
-            line for line in lines
-            if not re.match(r'^\s*["\{\}]', line.strip())
-        ]
-        text = "\n".join(clean_lines).strip()
-
-        return text
-
     def _build_system_prompt(
         self, session: Session, rag_context: str = ""
     ) -> str:
-        """Build a dynamic system prompt for data-collection messages.
+        """Build a unified system prompt for data-collection messages.
 
-        Combines the persona, stage-specific instructions, collected
-        data context, RAG knowledge base context, and data extraction
-        format instructions.
+        Combines the persona, collected data context, RAG knowledge
+        base context, and data extraction format instructions.
 
         Args:
             session: The current session state.
@@ -821,11 +590,6 @@ class ConversationAgent:
             A complete system prompt string.
         """
         parts: list[str] = [PERSONA_PROMPT]
-
-        # Add stage-specific prompt
-        stage_prompt = STAGE_PROMPTS.get(session.stage, "")
-        if stage_prompt:
-            parts.append(stage_prompt)
 
         # Add RAG knowledge base context (if available)
         if rag_context:
@@ -838,11 +602,6 @@ class ConversationAgent:
 
         # Add JSON extraction instructions
         parts.append(DATA_EXTRACTION_INSTRUCTION)
-
-        # Add field name hints for the current stage
-        field_hint = STAGE_FIELD_HINTS.get(session.stage, "")
-        if field_hint:
-            parts.append(field_hint)
 
         return "\n".join(parts)
 
@@ -898,13 +657,99 @@ class ConversationAgent:
 
         return ""
 
+    def _build_gentle_nudge(
+        self, session: Session, pending_data: dict
+    ) -> str:
+        """Build a code-generated gentle nudge for missing name/email.
+
+        This is appended to the LLM's answer via code, NOT
+        generated by the LLM, so the nudge is always correct.
+        It checks chat history to avoid repeating the same nudge.
+
+        Args:
+            session: The current session state.
+            pending_data: Data extracted from the current message (not yet in session).
+
+        Returns:
+            A gentle data request string, or empty string if nothing needed.
+        """
+        pi = session.collected_data.personal_info
+
+        has_name = pi.name or pending_data.get("name")
+        has_email = pi.email or pending_data.get("email")
+
+        # If both are collected, no nudge needed
+        if has_name and has_email:
+            return ""
+
+        # Check last bot message to avoid repeating the same nudge
+        history = session.get_history_for_llm()
+        last_bot_msg = ""
+        for msg in reversed(history):
+            if msg["role"] == "assistant":
+                last_bot_msg = msg["content"].lower()
+                break
+
+        if not has_name:
+            if "share your name" in last_bot_msg or "may i know your name" in last_bot_msg:
+                return ""
+            return "Before we wrap up, could you share your name so we can personalize your experience? 😊"
+        elif not has_email:
+            if "share your email" in last_bot_msg or "email address so" in last_bot_msg:
+                return ""
+            name_to_use = pi.name or pending_data.get("name", "")
+            return f"Thanks, {name_to_use}! Could you also share your email address so our team can follow up with you? 😊"
+
+        return ""
+
+    def _clean_answer_response(self, raw: str) -> str:
+        """Clean up an answer-only response from the LLM.
+
+        Small models may still output JSON or markdown even when
+        told not to. This strips those artifacts.
+
+        Args:
+            raw: The raw LLM response.
+
+        Returns:
+            Clean plain-text answer.
+        """
+        text = raw.strip()
+
+        # Try to extract from JSON if the model still outputs it
+        try:
+            json_match = re.search(r'"response"\s*:\s*"(.*?)"', text, re.DOTALL)
+            if json_match:
+                text = json_match.group(1)
+                # Unescape JSON string
+                text = text.replace('\\n', '\n').replace('\\"', '"')
+        except Exception:
+            pass
+
+        # Remove markdown code blocks
+        text = re.sub(r"```(?:json)?.*?```", "", text, flags=re.DOTALL).strip()
+
+        # Remove leftover JSON artifacts
+        text = re.sub(r'\{\s*"response".*', "", text, flags=re.DOTALL).strip()
+        text = re.sub(r'\{\s*"extracted_data".*', "", text, flags=re.DOTALL).strip()
+
+        # Remove any lines that look like JSON keys
+        lines = text.split("\n")
+        clean_lines = [
+            line for line in lines
+            if not re.match(r'^\s*["\{\}]', line.strip())
+        ]
+        text = "\n".join(clean_lines).strip()
+
+        return text
+
     # ============================================
     # Response Parsing
     # ============================================
 
     def _parse_llm_response(
         self, raw_response: str
-    ) -> tuple[str, dict, bool]:
+    ) -> tuple[str, dict]:
         """Parse the LLM's JSON response into components.
 
         Attempts to extract structured JSON from the response.
@@ -915,7 +760,7 @@ class ConversationAgent:
             raw_response: The raw text from the LLM.
 
         Returns:
-            A tuple of (reply_text, extracted_data_dict, stage_complete_bool).
+            A tuple of (reply_text, extracted_data_dict).
         """
         # Strategy 1: Try to extract JSON from markdown code blocks
         json_match = re.search(
@@ -950,7 +795,6 @@ class ConversationAgent:
 
                 reply = parsed.get("response", "").strip()
                 extracted = parsed.get("extracted_data", {})
-                stage_complete = parsed.get("stage_complete", False)
 
                 if reply:
                     # Clean extracted data — remove empty/null values
@@ -962,12 +806,11 @@ class ConversationAgent:
 
                     logger.info(
                         "Parsed conversation response — "
-                        "extracted fields: %s, stage_complete: %s",
+                        "extracted fields: %s",
                         list(clean_extracted.keys()),
-                        stage_complete,
                     )
 
-                    return reply, clean_extracted, stage_complete
+                    return reply, clean_extracted
 
             except (json.JSONDecodeError, AttributeError) as e:
                 logger.warning("Failed to parse LLM JSON response: %s", e)
@@ -994,13 +837,10 @@ class ConversationAgent:
                 "what you're looking for?"
             )
 
-        return clean_response, {}, False
+        return clean_response, {}
 
     def _sanitize_json(self, json_str: str) -> str:
         """Sanitize common JSON issues from small LLM outputs.
-
-        Small models often produce slightly malformed JSON.
-        This attempts to fix common issues.
 
         Args:
             json_str: The raw JSON string to sanitize.
@@ -1025,7 +865,7 @@ class ConversationAgent:
     # ============================================
 
     def _validate_extracted_data(
-        self, stage: ConversationStage, data: dict, user_message: str
+        self, data: dict, user_message: str
     ) -> dict:
         """Validate extracted data to reject nonsensical extractions.
 
@@ -1033,7 +873,6 @@ class ConversationAgent:
         ensures extracted values actually make sense.
 
         Args:
-            stage: The current conversation stage.
             data: The extracted data dictionary.
             user_message: The original user message for cross-reference.
 
@@ -1063,62 +902,47 @@ class ConversationAgent:
                 logger.debug("Rejecting field '%s': garbage value ('%s')", field_name, value_str)
                 continue
 
-            # Stage-specific validation
-            if stage == ConversationStage.PERSONAL_INFO:
-                if field_name == "name":
-                    # Name should be alphabetic words, at least 2 chars
-                    if not re.match(r"^[a-zA-Z\s\.\-']{2,}$", value_str):
-                        logger.debug("Rejecting name: doesn't look like a name ('%s')", value_str)
-                        continue
-                    # Name should appear in or relate to the user message
-                    if not self._value_plausible_from_message(value_str, user_message):
-                        logger.debug("Rejecting name: not found in user message ('%s')", value_str)
-                        continue
+            # Field-specific validation
+            if field_name == "name":
+                # Name should be alphabetic words, at least 2 chars
+                if not re.match(r"^[a-zA-Z\s\.\-']{2,}$", value_str):
+                    logger.debug("Rejecting name: doesn't look like a name ('%s')", value_str)
+                    continue
+                # Name should appear in or relate to the user message
+                if not self._value_plausible_from_message(value_str, user_message):
+                    logger.debug("Rejecting name: not found in user message ('%s')", value_str)
+                    continue
 
-                elif field_name == "email":
-                    # Basic email validation
-                    if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", value_str):
-                        logger.debug("Rejecting email: invalid format ('%s')", value_str)
-                        continue
-                    # Email should appear in user message
-                    if value_str.lower() not in msg_lower:
-                        logger.debug("Rejecting email: not in user message ('%s')", value_str)
-                        continue
+            elif field_name == "email":
+                # Basic email validation
+                if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", value_str):
+                    logger.debug("Rejecting email: invalid format ('%s')", value_str)
+                    continue
+                # Email should appear in user message
+                if value_str.lower() not in msg_lower:
+                    logger.debug("Rejecting email: not in user message ('%s')", value_str)
+                    continue
 
-                elif field_name == "phone":
-                    # Phone should contain digits
-                    digits = re.sub(r"[^\d]", "", value_str)
-                    if len(digits) < 7:
-                        logger.debug("Rejecting phone: too few digits ('%s')", value_str)
-                        continue
-                    # Phone digits should appear in user message
-                    msg_digits = re.sub(r"[^\d]", "", user_message)
-                    if digits not in msg_digits:
-                        logger.debug("Rejecting phone: digits not in user message ('%s')", value_str)
-                        continue
+            elif field_name == "phone":
+                # Phone should contain digits
+                digits = re.sub(r"[^\d]", "", value_str)
+                if len(digits) < 7:
+                    logger.debug("Rejecting phone: too few digits ('%s')", value_str)
+                    continue
+                msg_digits = re.sub(r"[^\d]", "", user_message)
+                if digits not in msg_digits:
+                    logger.debug("Rejecting phone: digits not in user message ('%s')", value_str)
+                    continue
 
-                elif field_name == "company":
-                    if not self._value_plausible_from_message(value_str, user_message):
-                        logger.debug("Rejecting company: not found in user message ('%s')", value_str)
-                        continue
-
-            elif stage == ConversationStage.TECH_DISCOVERY:
-                if field_name in ("project_type", "features", "tech_stack", "integrations"):
-                    if not self._value_plausible_from_message(value_str, user_message):
-                        logger.debug(
-                            "Rejecting %s: not plausible from message ('%s')",
-                            field_name, value_str
-                        )
-                        continue
-
-            elif stage == ConversationStage.SCOPE_PRICING:
-                if field_name in ("budget", "timeline", "mvp_or_production", "priority_features"):
-                    if not self._value_plausible_from_message(value_str, user_message):
-                        logger.debug(
-                            "Rejecting %s: not plausible from message ('%s')",
-                            field_name, value_str
-                        )
-                        continue
+            elif field_name in ("project_type", "features", "tech_stack", "integrations",
+                                "budget", "timeline", "mvp_or_production", "priority_features",
+                                "company"):
+                if not self._value_plausible_from_message(value_str, user_message):
+                    logger.debug(
+                        "Rejecting %s: not plausible from message ('%s')",
+                        field_name, value_str
+                    )
+                    continue
 
             validated[field_name] = value_str
 
@@ -1132,9 +956,6 @@ class ConversationAgent:
 
     def _value_plausible_from_message(self, value: str, message: str) -> bool:
         """Check if an extracted value is plausibly derived from the user message.
-
-        This prevents the model from hallucinating data that the user
-        never actually said.
 
         Args:
             value: The extracted value to check.
@@ -1161,51 +982,6 @@ class ConversationAgent:
         return False
 
     # ============================================
-    # Stage Completion Check
-    # ============================================
-
-    def _check_stage_completion(
-        self, session: Session, new_data: dict
-    ) -> bool:
-        """Check if the current stage's required data is complete.
-
-        Considers both the already-collected data in the session and
-        any newly extracted data from the current message.
-
-        Args:
-            session: The current session.
-            new_data: Newly extracted data from the latest message.
-
-        Returns:
-            True if all required fields for the current stage are collected.
-        """
-        stage = session.stage
-
-        if stage == ConversationStage.WELCOME:
-            # Welcome stage advances when the user responds
-            return True
-
-        elif stage == ConversationStage.PERSONAL_INFO:
-            pi = session.collected_data.personal_info
-            name = pi.name or new_data.get("name")
-            email = pi.email or new_data.get("email")
-            return all([name, email])
-
-        elif stage == ConversationStage.TECH_DISCOVERY:
-            td = session.collected_data.tech_discovery
-            project_type = td.project_type or new_data.get("project_type")
-            features = td.features or new_data.get("features")
-            return all([project_type, features])
-
-        elif stage == ConversationStage.SCOPE_PRICING:
-            sp = session.collected_data.scope_pricing
-            budget = sp.budget or new_data.get("budget")
-            timeline = sp.timeline or new_data.get("timeline")
-            return all([budget, timeline])
-
-        return False
-
-    # ============================================
     # Regex-Based Personal Data Extraction
     # ============================================
 
@@ -1223,7 +999,6 @@ class ConversationAgent:
             Dictionary with extracted fields, empty if nothing found.
         """
         extracted: dict = {}
-        msg_lower = message.strip().lower()
 
         # Extract name patterns
         name_patterns = [

@@ -24,41 +24,15 @@ logger = logging.getLogger(__name__)
 # System Prompt
 # ============================================
 
-SUMMARIZATION_SYSTEM_PROMPT = """You are a professional project analyst. Your task is to generate a clean, structured summary of a potential client's project requirements based on the data collected during a consultation.
+SUMMARIZATION_SYSTEM_PROMPT = """You are a professional project analyst. Your task is to generate a clean, dynamic summary of a potential client's project requirements based on the conversation history.
 
 INSTRUCTIONS:
-1. Create a professional, well-organized summary
-2. Use clear sections with headers
-3. Highlight key requirements and priorities
-4. Note any concerns or areas that need clarification
-5. Be factual — do not add information that wasn't provided
-6. Use professional, concise language
-
-OUTPUT FORMAT:
-Generate the summary using this exact structure:
-
-📋 **Lead Summary**
-
-**Client Information:**
-- Name: [name]
-- Email: [email]
-
-**Project Overview:**
-- Type: [project type]
-- Technology: [tech stack or "To be determined"]
-- Key Features: [features list]
-- Integrations: [integrations or "None specified"]
-
-**Scope & Budget:**
-- Budget Range: [budget]
-- Timeline: [timeline]
-- Project Scope: [MVP/Production or "Not specified"]
-- Priority Features: [priorities or "Not specified"]
-
-**Key Observations:**
-[2-3 bullet points summarizing the overall opportunity, any concerns, or recommendations]
-
-**Priority Level:** [Low / Medium / High — based on budget, timeline urgency, and project clarity]
+1. Create a professional, well-organized summary that flows naturally and is directly based on the user's conversation.
+2. Only include details that the user explicitly provided or discussed. DO NOT use generic placeholders like "Not specified" or "To be determined". If a detail wasn't discussed, simply omit it.
+3. Organize the summary with appropriate descriptive headers (e.g., Client Info, Project Details, Scope, etc.) tailored to what was actually discussed.
+4. Highlight key requirements, priorities, and any notable observations or context from the conversation.
+5. Improvise the structure so it fits the unique conversation, rather than forcing a rigid template.
+6. Keep the language professional, concise, and easy to read.
 
 ---
 Important: Output ONLY the summary text. Do not include any JSON, markdown code blocks, or extra formatting wrappers.
@@ -201,27 +175,34 @@ class SummarizationAgent:
         summary_lines = [
             "📋 **Lead Summary**",
             "",
-            "**Client Information:**",
-            f"- Name: {pi.name or 'Not provided'}",
-            f"- Email: {pi.email or 'Not provided'}",
-            "",
-            "**Project Overview:**",
-            f"- Type: {td.project_type or 'Not specified'}",
-            f"- Technology: {td.tech_stack or 'To be determined'}",
-            f"- Key Features: {td.features or 'Not specified'}",
-            f"- Integrations: {td.integrations or 'None specified'}",
-            "",
-            "**Scope & Budget:**",
-            f"- Budget Range: {sp.budget or 'Not discussed'}",
-            f"- Timeline: {sp.timeline or 'Not discussed'}",
-            f"- Project Scope: {sp.mvp_or_production or 'Not specified'}",
-            f"- Priority Features: {sp.priority_features or 'Not specified'}",
-            "",
-            "**Key Observations:**",
-            "- Summary generated using fallback mode (LLM unavailable)",
-            "- Please review the conversation history for additional context",
-            "",
-            "**Priority Level:** To be determined",
         ]
+        
+        if pi.name or pi.email:
+            summary_lines.append("**Client Information:**")
+            if pi.name: summary_lines.append(f"- Name: {pi.name}")
+            if pi.email: summary_lines.append(f"- Email: {pi.email}")
+            summary_lines.append("")
+            
+        if td.project_type or td.tech_stack or td.features or td.integrations:
+            summary_lines.append("**Project Details:**")
+            if td.project_type: summary_lines.append(f"- Type: {td.project_type}")
+            if td.tech_stack: summary_lines.append(f"- Technology: {td.tech_stack}")
+            if td.features: summary_lines.append(f"- Key Features: {td.features}")
+            if td.integrations: summary_lines.append(f"- Integrations: {td.integrations}")
+            summary_lines.append("")
+            
+        if sp.budget or sp.timeline or sp.mvp_or_production or sp.priority_features:
+            summary_lines.append("**Scope & Budget:**")
+            if sp.budget: summary_lines.append(f"- Budget Range: {sp.budget}")
+            if sp.timeline: summary_lines.append(f"- Timeline: {sp.timeline}")
+            if sp.mvp_or_production: summary_lines.append(f"- Project Scope: {sp.mvp_or_production}")
+            if sp.priority_features: summary_lines.append(f"- Priority Features: {sp.priority_features}")
+            summary_lines.append("")
+
+        summary_lines.extend([
+            "**Observations:**",
+            "- Summary generated using fallback mode (LLM unavailable)",
+            "- Please review the conversation history for additional context"
+        ])
 
         return "\n".join(summary_lines)

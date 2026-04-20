@@ -183,33 +183,26 @@ class EmailAgent:
             EmailResult with composed emails and status, or None if skipped.
         """
         try:
-            # 1. Analyze Intent
-            is_high_intent = await self.analyze_intent(session)
-            
-            # Always treat as high intent if they provided an email
-            if session.collected_data.personal_info.email:
-                is_high_intent = True
-
-            if not is_high_intent:
-                logger.info("Session %s determined as low intent. Skipping emails.", session.session_id)
+            # 1. Analyze Intent and Check Email
+            if not session.collected_data.personal_info.email:
+                logger.info("Session %s has no user email. Skipping all email notifications.", session.session_id)
                 return EmailResult(
-                    user_email=None,  # type: ignore
-                    admin_email=None, # type: ignore
+                    user_email=None,
+                    admin_email=None,
                     success=True,
-                    message="Session finished cleanly (no emails sent due to low intent)."
+                    message="Thank you! Your details have been recorded. No email was provided, so notifications are skipped."
                 )
+                
+            # If they provided an email, treat as high intent
+            is_high_intent = True
 
             # Compose admin email first (always sent for high intent)
             admin_email = await self._compose_admin_email(session)
             self._send_email(admin_email)
 
-            # Compose user email ONLY if user provided an email address
-            user_email = None
-            if session.collected_data.personal_info.email:
-                user_email = await self._compose_user_email(session)
-                self._send_email(user_email)
-            else:
-                logger.info("No user email found for session %s. Skipping user email.", session.session_id)
+            # Compose user email ONLY if user provided an email address (which is guaranteed here)
+            user_email = await self._compose_user_email(session)
+            self._send_email(user_email)
 
             # Save to log file
             self._save_to_log(session.session_id, user_email, admin_email)
@@ -240,10 +233,8 @@ class EmailAgent:
             admin_email = self._compose_fallback_admin_email(session)
             self._send_email(admin_email)
 
-            user_email = None
-            if session.collected_data.personal_info.email:
-                user_email = self._compose_fallback_user_email(session)
-                self._send_email(user_email)
+            user_email = self._compose_fallback_user_email(session)
+            self._send_email(user_email)
 
             self._save_to_log(session.session_id, user_email, admin_email)
 
