@@ -7,14 +7,19 @@
  *   - Typing indicator during AI processing
  *   - Auto-scroll to latest message
  *   - Session management (start, reset)
+ *
+ * Supports two modes:
+ *   - "page"   (default) — standalone full-page chat
+ *   - "widget" — embedded in the WidgetLauncher panel
  */
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, type MutableRefObject } from "react";
 import {
   sendMessage,
   resetSession,
   exitSession,
   generateSessionId,
+  setApiBaseUrl,
   type ChatResponse,
 } from "../api";
 import "./ChatWindow.css";
@@ -33,10 +38,30 @@ interface Message {
 
 
 // ============================================
+// Props (Widget Mode Support)
+// ============================================
+
+interface ChatWindowProps {
+  /** Display mode: "page" (standalone) or "widget" (embedded). */
+  mode?: "page" | "widget";
+  /** Override API base URL (used in widget mode). */
+  apiBaseUrl?: string;
+  /**
+   * Ref callback for the parent to trigger a session reset.
+   * WidgetLauncher sets this to call handleReset from outside.
+   */
+  onResetRef?: MutableRefObject<(() => void) | null>;
+}
+
+// ============================================
 // Component
 // ============================================
 
-export default function ChatWindow() {
+export default function ChatWindow({
+  mode = "page",
+  apiBaseUrl,
+  onResetRef,
+}: ChatWindowProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -50,17 +75,25 @@ export default function ChatWindow() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
+  // Set API URL for widget mode
+  useEffect(() => {
+    if (apiBaseUrl) {
+      setApiBaseUrl(apiBaseUrl);
+    }
+  }, [apiBaseUrl]);
+
   // Initialize session
   useEffect(() => {
-    const stored = sessionStorage.getItem("chatbot_session_id");
+    const storageKey = mode === "widget" ? "cw_widget_session_id" : "chatbot_session_id";
+    const stored = sessionStorage.getItem(storageKey);
     if (stored) {
       setSessionId(stored);
     } else {
       const newId = generateSessionId();
       setSessionId(newId);
-      sessionStorage.setItem("chatbot_session_id", newId);
+      sessionStorage.setItem(storageKey, newId);
     }
-  }, []);
+  }, [mode]);
 
   // Auto-scroll to bottom
   useEffect(() => {
@@ -169,7 +202,7 @@ export default function ChatWindow() {
   };
 
   // Reset session
-  const handleReset = async () => {
+  const handleReset = useCallback(async () => {
     if (!sessionId) return;
 
     try {
@@ -179,9 +212,10 @@ export default function ChatWindow() {
     }
 
     // Generate new session
+    const storageKey = mode === "widget" ? "cw_widget_session_id" : "chatbot_session_id";
     const newId = generateSessionId();
     setSessionId(newId);
-    sessionStorage.setItem("chatbot_session_id", newId);
+    sessionStorage.setItem(storageKey, newId);
 
     // Clear state
     setMessages([]);
@@ -189,7 +223,14 @@ export default function ChatWindow() {
     setCollectedData({});
     setError(null);
     setInput("");
-  };
+  }, [sessionId, mode]);
+
+  // Expose reset to parent (widget mode)
+  useEffect(() => {
+    if (onResetRef) {
+      onResetRef.current = handleReset;
+    }
+  }, [onResetRef, handleReset]);
 
 
 

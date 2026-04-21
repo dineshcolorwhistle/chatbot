@@ -12,7 +12,29 @@
  *   - Timeout protection for slow LLM responses
  */
 
-const API_BASE_URL = "http://localhost:8000/api";
+/**
+ * API base URL — defaults to localhost for standalone mode.
+ * In widget mode, this is overridden via setApiBaseUrl()
+ * which reads from the <script data-api-url="..."> attribute.
+ */
+let API_BASE_URL = "http://localhost:8000/api";
+
+/**
+ * Override the API base URL at runtime.
+ * Called by the widget entry point during initialization.
+ *
+ * @param baseUrl The backend base URL (e.g. "https://api.colorwhistle.com")
+ *                — the "/api" suffix is appended automatically if not present.
+ */
+export function setApiBaseUrl(baseUrl: string): void {
+  const cleaned = baseUrl.replace(/\/+$/, ""); // strip trailing slashes
+  API_BASE_URL = cleaned.endsWith("/api") ? cleaned : `${cleaned}/api`;
+}
+
+/** Get the current API base URL (useful for debugging). */
+export function getApiBaseUrl(): string {
+  return API_BASE_URL;
+}
 
 /** Default timeout for API calls (ms) — generous for LLM processing */
 const DEFAULT_TIMEOUT_MS = 120_000; // 2 minutes

@@ -230,12 +230,19 @@ chatbot/
 ├── frontend/
 │   ├── src/
 │   │   ├── components/
-│   │   │   └── ChatWindow.tsx       # Chat UI component
+│   │   │   └── ChatWindow.tsx       # Chat UI component (page + widget mode)
 │   │   ├── pages/
-│   │   │   └── ChatPage.tsx         # Main chat page
-│   │   ├── api.ts                   # API client
+│   │   │   └── ChatPage.tsx         # Main chat page (standalone)
+│   │   ├── widget/                  # 🔌 Embeddable widget module
+│   │   │   ├── WidgetLauncher.tsx   # FAB + expandable panel
+│   │   │   ├── WidgetHeader.tsx     # Compact widget header
+│   │   │   ├── widget-entry.tsx     # IIFE entry point
+│   │   │   └── widget.css          # Widget-scoped styles
+│   │   ├── api.ts                   # API client (configurable URL)
 │   │   ├── App.tsx
 │   │   └── main.tsx
+│   ├── vite.widget.config.ts        # Widget build config
+│   ├── test-widget.html             # Widget integration test page
 │   ├── index.html
 │   ├── package.json
 │   └── tsconfig.json
@@ -303,7 +310,33 @@ Each agent receives a carefully crafted system prompt:
 5. ✅ Code must be clean, modular, and scalable
 6. ❌ Do NOT use production DB — in-memory sessions only
 7. ❌ Do NOT use Docker — local dev only
-8. ❌ Do NOT create widget version yet
+7. ❌ Do NOT create widget version yet
+
+---
+
+## Widget Integration (Phase 10)
+
+The chatbot is available as an **embeddable JavaScript widget** that can be integrated into any website with a single `<script>` tag.
+
+### Embed Usage
+
+```html
+<script
+  src="https://your-cdn.com/widget.js"
+  data-api-url="https://api.colorwhistle.com"
+  data-company-name="ColorWhistle"
+  data-logo-url="https://colorwhistle.com/logo.svg"
+  data-position="bottom-right"
+></script>
+```
+
+### Widget Architecture
+
+- **Single file output** — `widget.js` (~220KB, 68KB gzipped) contains React, all components, and all CSS
+- **CSS isolation** — All styles scoped under `.cw-chat-widget` with `!important` overrides to prevent host CSS bleed
+- **Dual-mode ChatWindow** — Same component serves standalone app (`mode="page"`) and widget (`mode="widget"`)
+- **Runtime API URL** — Backend URL configurable via `data-api-url` on the script tag
+- **Build command** — `npm run build:widget` produces `dist-widget/widget.js`
 
 ---
 
@@ -316,8 +349,8 @@ Keep code structured for future upgrades:
 | Redis sessions | Abstract session interface |
 | PostgreSQL | Add ORM layer later |
 | Ollama / Qwen / Gemini | Provider interface ready |
-| Widget embedding | Chat component is self-contained |
-| WordPress integration | REST API already compatible |
+| Widget embedding | ✅ **Done** — embeddable IIFE widget |
+| WordPress integration | REST API compatible + widget `<script>` tag |
 | CRM integration | Add webhook/adapter in services |
 | Real email (SendGrid/SES) | Swap email agent's send method |
 | Multi-language support | Prompt-based, easy to add |

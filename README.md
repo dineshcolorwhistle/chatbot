@@ -43,6 +43,38 @@ npm run dev
 
 App: http://localhost:5173
 
+### Widget Build
+
+Build the embeddable widget for integration into external websites:
+
+```bash
+cd frontend
+npm run build:widget
+# Output: dist-widget/widget.js (single self-contained file)
+```
+
+Embed on any website with a single `<script>` tag:
+
+```html
+<script
+  src="https://your-cdn.com/widget.js"
+  data-api-url="https://api.colorwhistle.com"
+  data-company-name="ColorWhistle"
+  data-logo-url="https://colorwhistle.com/logo.svg"
+  data-position="bottom-right"
+></script>
+```
+
+| Attribute | Required | Default | Description |
+|-----------|----------|---------|-------------|
+| `data-api-url` | ✅ | `http://localhost:8000` | Backend API URL |
+| `data-company-name` | ❌ | `ColorWhistle` | Company name in header |
+| `data-logo-url` | ❌ | — | Logo image URL |
+| `data-position` | ❌ | `bottom-right` | `bottom-right` or `bottom-left` |
+| `data-greeting` | ❌ | — | Custom greeting message |
+
+Test locally: open http://localhost:5173/test-widget.html
+
 ### Configuration
 
 Copy `.env.example` to `.env` and configure:
@@ -342,14 +374,23 @@ chatbot/
 ├── frontend/
 │   ├── src/
 │   │   ├── components/
-│   │   │   ├── ChatWindow.tsx        # Chat UI component
+│   │   │   ├── ChatWindow.tsx        # Chat UI component (page + widget mode)
 │   │   │   └── ChatWindow.css        # Chat styling
 │   │   ├── pages/
-│   │   │   └── ChatPage.tsx          # Main chat page
-│   │   ├── api.ts                    # API client
+│   │   │   └── ChatPage.tsx          # Main chat page (standalone)
+│   │   ├── widget/                   # 🔌 Embeddable widget module
+│   │   │   ├── WidgetLauncher.tsx    # FAB + expandable panel
+│   │   │   ├── WidgetHeader.tsx      # Compact widget header
+│   │   │   ├── widget-entry.tsx      # IIFE entry point
+│   │   │   └── widget.css           # Widget-scoped styles
+│   │   ├── api.ts                    # API client (configurable URL)
 │   │   ├── App.tsx                   # Root component
 │   │   ├── main.tsx                  # Entry point
 │   │   └── index.css                 # Global design system
+│   ├── vite.widget.config.ts         # Widget build config (IIFE + CSS inject)
+│   ├── test-widget.html              # Widget integration test page
+│   ├── dist-widget/                  # Built widget output
+│   │   └── widget.js                 # Self-contained embeddable bundle
 │   ├── index.html
 │   └── package.json
 │
@@ -376,6 +417,7 @@ chatbot/
 | Phase 7 | API Routes | ✅ Complete |
 | Phase 8 | Frontend | ✅ Complete |
 | Phase 9 | Polish & Docs | ✅ Complete |
+| Phase 10 | Embeddable Widget | ✅ Complete |
 
 ## Running Tests
 

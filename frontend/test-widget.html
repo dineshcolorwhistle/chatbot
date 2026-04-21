@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Widget Integration Test — Sample Host Website</title>
+  <style>
+    /* Simulate a typical host website */
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: Georgia, 'Times New Roman', serif;
+      background: #f5f5f5;
+      color: #333;
+      line-height: 1.8;
+    }
+
+    header {
+      background: linear-gradient(135deg, #2c3e50, #3498db);
+      color: white;
+      padding: 40px 20px;
+      text-align: center;
+    }
+
+    header h1 {
+      font-size: 2.5rem;
+      margin-bottom: 10px;
+    }
+
+    header p {
+      font-size: 1.1rem;
+      opacity: 0.9;
+    }
+
+    nav {
+      background: #2c3e50;
+      padding: 12px 20px;
+      display: flex;
+      gap: 24px;
+      justify-content: center;
+    }
+
+    nav a {
+      color: #ecf0f1;
+      text-decoration: none;
+      font-size: 14px;
+      font-family: Arial, sans-serif;
+    }
+
+    nav a:hover {
+      color: #3498db;
+    }
+
+    main {
+      max-width: 800px;
+      margin: 40px auto;
+      padding: 0 20px;
+    }
+
+    .card {
+      background: white;
+      border-radius: 8px;
+      padding: 30px;
+      margin-bottom: 24px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    }
+
+    .card h2 {
+      color: #2c3e50;
+      margin-bottom: 12px;
+      font-size: 1.5rem;
+    }
+
+    .card p {
+      color: #555;
+      margin-bottom: 12px;
+    }
+
+    .card .btn {
+      display: inline-block;
+      background: #3498db;
+      color: white;
+      padding: 10px 24px;
+      border-radius: 6px;
+      text-decoration: none;
+      font-family: Arial, sans-serif;
+      font-size: 14px;
+    }
+
+    .card .btn:hover {
+      background: #2980b9;
+    }
+
+    footer {
+      text-align: center;
+      padding: 30px;
+      color: #888;
+      font-size: 14px;
+      font-family: Arial, sans-serif;
+    }
+
+    /* Test: host CSS should NOT bleed into widget */
+    button {
+      background: red !important;
+      color: yellow !important;
+      font-size: 20px !important;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Sample Company Website</h1>
+    <p>This is a test page to verify the chat widget integration</p>
+  </header>
+
+  <nav>
+    <a href="#">Home</a>
+    <a href="#">Services</a>
+    <a href="#">Portfolio</a>
+    <a href="#">About</a>
+    <a href="#">Contact</a>
+  </nav>
+
+  <main>
+    <div class="card">
+      <h2>🧪 Widget Integration Test</h2>
+      <p>
+        This page simulates a typical host website. The chat widget should appear
+        as a floating button in the <strong>bottom-right corner</strong>.
+      </p>
+      <p>
+        Click the button to open the chat panel. The widget should:
+      </p>
+      <ul style="margin: 12px 0 12px 24px; color: #555;">
+        <li>Not be affected by this page's CSS (note the hostile <code>button</code> styles above)</li>
+        <li>Animate smoothly on open/close</li>
+        <li>Be fully functional — send messages, receive AI responses</li>
+        <li>Adapt to mobile screens (full-screen on small viewports)</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h2>Our Services</h2>
+      <p>
+        We build beautiful websites, web applications, and digital experiences.
+        Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod
+        tempor incididunt ut labore et dolore magna aliqua.
+      </p>
+      <a href="#" class="btn">Learn More</a>
+    </div>
+
+    <div class="card">
+      <h2>Recent Projects</h2>
+      <p>
+        Check out our latest work. From e-commerce platforms to SaaS dashboards,
+        we deliver pixel-perfect implementations.
+      </p>
+      <a href="#" class="btn">View Portfolio</a>
+    </div>
+  </main>
+
+  <footer>
+    &copy; 2026 Sample Company. This is a widget integration test page.
+  </footer>
+
+  <!--
+    ============================================
+    CHAT WIDGET EMBED — This is all you need!
+    ============================================
+    In production, replace the src with your hosted widget.js URL
+    and update data-api-url to your production backend.
+  -->
+  <script
+    src="./dist-widget/widget.js"
+    data-api-url="http://localhost:8000"
+    data-company-name="ColorWhistle"
+    data-logo-url="./public/logo.svg"
+    data-position="bottom-right"
+  ></script>
+</body>
+</html>

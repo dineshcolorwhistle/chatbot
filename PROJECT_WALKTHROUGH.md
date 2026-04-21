@@ -180,12 +180,20 @@ chatbot/
 ├── frontend/
 │   ├── src/
 │   │   ├── components/
-│   │   │   └── ChatWindow.tsx
+│   │   │   ├── ChatWindow.tsx        # Chat UI (page + widget mode)
+│   │   │   └── ChatWindow.css        # Chat styling
 │   │   ├── pages/
-│   │   │   └── ChatPage.tsx
-│   │   ├── api.ts
+│   │   │   └── ChatPage.tsx          # Standalone chat page
+│   │   ├── widget/                   # 🔌 Embeddable widget
+│   │   │   ├── WidgetLauncher.tsx    # FAB + expandable panel
+│   │   │   ├── WidgetHeader.tsx      # Compact widget header
+│   │   │   ├── widget-entry.tsx      # IIFE bootstrap entry
+│   │   │   └── widget.css           # Widget-scoped styles
+│   │   ├── api.ts                    # API client (configurable URL)
 │   │   ├── App.tsx
 │   │   └── main.tsx
+│   ├── vite.widget.config.ts         # Widget IIFE build config
+│   ├── test-widget.html              # Widget test page
 │   ├── index.html
 │   └── package.json
 │
@@ -319,6 +327,15 @@ CLOUD_MODEL=gpt-4o-mini
 - Styling, UX polish, error handling
 - README, API docs, testing
 
+### Phase 10 — Embeddable Widget
+- `widget/WidgetLauncher.tsx` — FAB + expandable chat panel
+- `widget/WidgetHeader.tsx` — Compact header with brand, status, close
+- `widget/widget-entry.tsx` — IIFE bootstrap from `<script>` tag
+- `widget/widget.css` — CSS-isolated widget styles
+- `vite.widget.config.ts` — Build config with CSS injector plugin
+- `ChatWindow.tsx` refactored for dual-mode (page/widget)
+- `api.ts` with configurable API URL
+
 ---
 
 ## Phase Progress Tracker
@@ -334,6 +351,7 @@ CLOUD_MODEL=gpt-4o-mini
 | Phase 7 | API Routes | ✅ Complete |
 | Phase 8 | Frontend | ✅ Complete |
 | Phase 9 | Polish & Docs | ✅ Complete |
+| Phase 10 | Embeddable Widget | ✅ Complete |
 
 ---
 
@@ -358,8 +376,8 @@ CLOUD_MODEL=gpt-4o-mini
 | Redis sessions | Abstract session interface |
 | PostgreSQL | Pydantic models map to ORM easily |
 | New LLM providers | Abstract provider interface |
-| Widget embedding | Chat component is self-contained |
-| WordPress integration | REST API already compatible |
+| Widget embedding | ✅ **Done** — IIFE widget with CSS isolation |
+| WordPress integration | Widget `<script>` tag + REST API |
 | CRM integration | Add webhook/adapter in services |
 | Real email (SendGrid/SES) | Swap email agent's send method |
 | Multi-language | Prompt-based, easy to add |
