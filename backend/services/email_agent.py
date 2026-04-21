@@ -85,10 +85,15 @@ INSTRUCTIONS:
 5. Keep it concise (under 200 words)
 6. Use a professional but warm tone
 
+CRITICAL RULE:
+- You MUST use the actual client name provided in the CLIENT INFORMATION section below.
+- NEVER use placeholder text like [Name], [Client Name], or [Client's Name].
+- If the client name is "Valued Client", use "Valued Client" as-is.
+
 OUTPUT FORMAT:
 Write ONLY the email body text. Do NOT include Subject, To, or From headers.
 Do NOT wrap in markdown code blocks.
-Start directly with the greeting (e.g., "Dear [Name],")
+Start directly with the greeting using the client's real name (e.g., "Dear John,").
 End with a professional sign-off.
 """
 
@@ -101,6 +106,11 @@ INSTRUCTIONS:
 4. Include the full lead summary
 5. Add a recommendation for next steps
 6. Use a professional, internal communication tone
+
+CRITICAL RULE:
+- You MUST use the actual client name provided in the CLIENT INFORMATION section below.
+- NEVER use placeholder text like [Name], [Client Name], or [Client's Name].
+- Always refer to the client by their real name throughout the email.
 
 OUTPUT FORMAT:
 Write ONLY the email body text. Do NOT include Subject, To, or From headers.
@@ -367,17 +377,24 @@ class EmailAgent:
         if session.summary:
             parts.append(f"\n=== GENERATED SUMMARY ===\n{session.summary}")
 
+        user_name = data.personal_info.name or "Valued Client"
+
         if email_type == "user":
             parts.append(
-                "\n=== TASK ===\n"
-                "Compose a warm thank-you email to this client. "
-                "Reference their specific project briefly."
+                f"\n=== TASK ===\n"
+                f"Compose a warm thank-you email to this client. "
+                f"The client's name is \"{user_name}\" — you MUST use this exact name in the greeting and body. "
+                f"Do NOT use placeholders like [Name] or [Client Name]. "
+                f"Reference their specific project briefly."
             )
         else:
             parts.append(
-                "\n=== TASK ===\n"
-                "Compose an internal notification email about this new lead "
-                "for the development/sales team. Include all key details."
+                f"\n=== TASK ===\n"
+                f"Compose an internal notification email about this new lead "
+                f"for the development/sales team. "
+                f"The client's name is \"{user_name}\" — use this exact name throughout. "
+                f"Do NOT use placeholders like [Client's Name] or [Name]. "
+                f"Include all key details."
             )
 
         return "\n".join(parts)
