@@ -15,7 +15,7 @@ cd backend
 source venv/bin/activate
 pip install -r requirements.txt
 
-systemctl restart chatbot
+sudo systemctl restart chatbot.service
 
 # Frontend
 cd ../frontend
