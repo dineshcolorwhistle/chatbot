@@ -22,4 +22,13 @@ jobs:
 
       - name: Deploy to server
         run: |
-          ssh ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} "bash /home/deploy.sh"
+          ssh ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} << 'EOF'
+            set -e
+
+            cd /home/eduwhistle-chatbot/htdocs/chatbot.eduwhistle.com/chatbot
+
+            git pull origin main
+
+            chmod +x scripts/deploy.sh
+            bash scripts/deploy.sh
+          EOF
