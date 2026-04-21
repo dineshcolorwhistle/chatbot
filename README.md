@@ -9,6 +9,7 @@ LLM-powered multi-agent chatbot for business lead qualification and requirement 
 | Frontend | React + TypeScript (Vite) |
 | Backend | FastAPI (Python) |
 | LLM | Ollama (local) / Cloud (OpenAI-compatible) |
+| RAG | Pinecone + Ollama Embeddings |
 | Sessions | In-memory |
 
 ## Quick Start
@@ -47,6 +48,7 @@ App: http://localhost:5173
 Copy `.env.example` to `.env` and configure:
 
 ```env
+# LLM Provider
 LLM_PROVIDER=ollama              # "ollama" or "cloud"
 OLLAMA_BASE_URL=http://localhost:11434
 OLLAMA_MODEL=llama3.2
@@ -55,23 +57,49 @@ CLOUD_API_KEY=your-key           # Only needed for cloud provider
 CLOUD_BASE_URL=https://api.openai.com/v1
 CLOUD_MODEL=gpt-4o-mini
 
-MAX_USER_MESSAGES=5              # Maximum number of standard interactions allowed per session
+# Conversation Limits
+MAX_USER_MESSAGES=5              # Maximum interactions allowed per session
+
+# Email (SMTP)
+SMTP_HOST=smtp.example.com
+SMTP_PORT=587
+SMTP_USER=your-email@example.com
+SMTP_PASSWORD=your-password
+SMTP_FROM=noreply@colorwhistle.com
+ADMIN_EMAILS=admin@colorwhistle.com
+
+# RAG (Pinecone)
+PINECONE_API_KEY=your-pinecone-key
+PINECONE_INDEX_NAME=colorwhistle-kb
+EMBEDDING_MODEL=nomic-embed-text
 ```
 
 ## Architecture
 
-Multi-agent system with 4 specialized agents:
+### Overview
 
-- **🎯 Orchestrator** — Coordinates agents, manages state & stage transitions (code-driven)
-- **🗣️ Conversation Agent** — Natural dialogue with users across stages 1-4 (LLM-powered)
-- **📋 Summarization Agent** — Generates structured lead summaries at stage 5 (LLM-powered)
-- **📧 Email Agent** — Composes notification emails at stage 6 (LLM-powered)
+Multi-agent system with 4 specialized agents operating in a **single-section conversation flow** — no rigid stage-based routing:
 
-### Conversation Stages
+- **🎯 Orchestrator** — Coordinates agents, manages state & message limits (code-driven)
+- **🗣️ Conversation Agent** — Natural dialogue with users in a single unified block (LLM-powered)
+- **📋 Summarization Agent** — Generates dynamic lead summaries at completion (LLM-powered)
+- **📧 Email Agent** — Composes & sends notification emails at completion (LLM-powered)
+
+### Conversation Lifecycle
 
 ```
-Welcome → Personal Info → Tech Discovery → Scope & Pricing → Summary → Email → Complete
+Welcome → Conversation (single block) → Limit Warning → Final Input → Completed
+                                                                       ↓
+                                                            Summary + Email (background)
 ```
+
+| Stage | Description |
+|-------|-------------|
+| `welcome` | First-time greeting, transitions immediately to conversation |
+| `conversation` | **Single unified block** — the agent naturally answers questions, extracts data (name, email, project details), and gently nudges for contact info. No sub-stages. |
+| `limit_warning` | Triggered when `MAX_USER_MESSAGES` is reached. Asks if user wants to provide final details (Yes/No). |
+| `final_input` | User provides remaining info in one message. Data is extracted, then session completes. |
+| `completed` | Session closed. Summary generated & emails dispatched in the background. |
 
 ### Application Process Flow
 
@@ -107,144 +135,141 @@ The complete request lifecycle when a **user sends a message**:
 │     Code-driven, deterministic logic (NOT LLM-powered)                      │
 │                                                                              │
 │     Step 3a: Load or create session from MemoryStore                        │
-│              └── If new session → send welcome message                      │
+│              └── If new session → send welcome + process first message      │
 │                                                                              │
 │     Step 3b: Route based on current stage:                                  │
 │              ┌─────────────────────────────────────────────────────┐        │
-│              │ WELCOME          → _handle_welcome()               │        │
-│              │ PERSONAL_INFO    → _handle_conversation() ──┐      │        │
-│              │ TECH_DISCOVERY   → _handle_conversation() ──┤      │        │
-│              │ SCOPE_PRICING    → _handle_conversation() ──┘      │        │
-│              │ SUMMARY          → _handle_summary()               │        │
-│              │ EMAIL            → _handle_email()                 │        │
-│              │ COMPLETED        → return static message           │        │
+│              │ WELCOME        → _handle_welcome()                 │        │
+│              │ CONVERSATION   → _handle_conversation()            │        │
+│              │ LIMIT_WARNING  → _handle_limit_warning()           │        │
+│              │ FINAL_INPUT    → _handle_final_input()             │        │
+│              │ COMPLETED      → return static message             │        │
 │              └─────────────────────────────────────────────────────┘        │
+│                                                                              │
+│     Step 3c: Track user message count against MAX_USER_MESSAGES             │
+│              └── If limit reached → transition to LIMIT_WARNING             │
+│                                                                              │
+│     Step 3d: On completion → background task:                               │
+│              └── Summarization Agent → Email Agent (async)                  │
 └──────────────────────┬───────────────────────────────────────────────────────┘
                        │
-          ┌────────────┼────────────────────────┐
-          │            │                        │
-          ▼            ▼                        ▼
-┌─────────────┐ ┌─────────────┐ ┌──────────────────────────────────────────┐
-│ Stages 1-4  │ │  Stage 5    │ │  Stage 6                                 │
-│ Conversation│ │  Summary    │ │  Email                                   │
-│ Agent  🗣️   │ │  Agent  📋  │ │  Agent  📧                               │
-└──────┬──────┘ └──────┬──────┘ └──────────────────┬───────────────────────┘
-       │               │                           │
-       ▼               │                           │
-┌──────────────────────────────────────┐           │
-│  4. CONVERSATION AGENT (Stages 1-4) │           │
-│     🗣️ LLM-Powered Dialogue         │           │
-│                                      │           │
-│     Step 4a: Intent Detection        │           │
-│     • Is user asking a QUESTION?     │           │
-│       (pattern matching on ?, who,   │           │
-│        what, how, etc.)              │           │
-│     • Or providing DATA?             │           │
-│              │                       │           │
-│              ▼                       │           │
-│     Step 4b: RAG Context Retrieval   │           │
-│     • Query KnowledgeBase (Pinecone) │           │
-│     • Embed user message via Ollama  │           │
-│     • Semantic search for relevant   │           │
-│       company knowledge chunks       │           │
-│     • Format results for LLM prompt  │           │
-│              │                       │           │
-│              ▼                       │           │
-│     Step 4c: Build System Prompt     │           │
-│     • Persona prompt (ColorWhistle   │           │
-│       consultant persona)            │           │
-│     • Stage-specific instructions    │           │
-│       (what data to collect)         │           │
-│     • RAG context (if available)     │           │
-│     • Already-collected data context │           │
-│       (to avoid re-asking)           │           │
-│     • JSON extraction instructions   │           │
-│              │                       │           │
-│              ▼                       │           │
-│     Step 4d: LLM Generation         │           │
-│     • Send system + history +        │           │
-│       user message to Ollama/Cloud   │           │
-│     • Temperature: 0.4               │           │
-│     • Expect structured JSON:        │           │
-│       { response, extracted_data,    │           │
-│         stage_complete }             │           │
-│              │                       │           │
-│              ▼                       │           │
-│     Step 4e: Parse LLM Response      │           │
-│     • Try JSON from code blocks      │           │
-│     • Try JSON with "response" key   │           │
-│     • Fallback: raw text response    │           │
-│              │                       │           │
-│              ▼                       │           │
-│     Step 4f: Data Validation         │           │
-│     • Reject garbage values          │           │
-│     • Validate format (email regex,  │           │
-│       phone digit count, name alpha) │           │
-│     • Cross-reference with user msg  │           │
-│       (anti-hallucination check)     │           │
-│     • If question → force-clear      │           │
-│       extracted data                 │           │
-│              │                       │           │
-│              ▼                       │           │
-│     Return ConversationResult:       │           │
-│     { reply, extracted_data,         │           │
-│       should_advance }              │           │
-└──────────────┬───────────────────────┘           │
-               │                                   │
-               ▼                                   │
-┌──────────────────────────────────────┐           │
-│  5. BACK IN ORCHESTRATOR             │           │
-│     Post-Processing                  │           │
-│                                      │           │
-│     Step 5a: Apply Extracted Data    │           │
-│     • Map fields to session model:   │           │
-│       - personal_info: name, email  │           │
-│       - tech_discovery: project_type,│           │
-│         tech_stack, features,        │           │
-│         integrations                 │           │
-│       - scope_pricing: budget,       │           │
-│         timeline, mvp_or_production, │           │
-│         priority_features            │           │
-│              │                       │           │
-│              ▼                       │           │
-│     Step 5b: Stage Transition Check  │           │
-│     • If should_advance = true:      │           │
-│       advance to next stage          │           │
-│     • Auto-triggers:                 │           │
-│       - SCOPE → SUMMARY:            │           │
-│         auto-invoke Summary Agent    │ ◄─────────┤
-│       - SUMMARY confirmed:          │           │
-│         auto-invoke Email Agent      │ ◄─────────┘
-│              │                       │
-│              ▼                       │
-│     Step 5c: Save Session            │
-│     • Persist to MemoryStore         │
-│     • Update timestamps              │
-└──────────────┬───────────────────────┘
-               │
-               ▼
+          ┌────────────┼─────────────────────────┐
+          │            │                         │
+          ▼            ▼                         ▼
+┌──────────────┐ ┌──────────────┐ ┌──────────────────────────────────────────┐
+│ Conversation │ │  Completion  │ │  Completion                              │
+│  Stage 🗣️   │ │  Summary 📋  │ │  Email  📧                               │
+│   (active)   │ │ (background) │ │ (background)                             │
+└──────┬───────┘ └──────┬───────┘ └──────────────────┬───────────────────────┘
+       │                │                            │
+       ▼                │                            │
+┌──────────────────────────────────────┐             │
+│  4. CONVERSATION AGENT               │             │
+│     🗣️ LLM-Powered Dialogue          │             │
+│     (Single unified block — no       │             │
+│      sub-stages or rigid routing)    │             │
+│                                      │             │
+│     Step 4a: Intent Detection        │             │
+│     • Is user asking a QUESTION?     │             │
+│       → Answer-first flow            │             │
+│     • Is it IRRELEVANT? (weather,    │             │
+│       sports, math, etc.)            │             │
+│       → Polite redirect              │             │
+│     • Is it DATA provision?          │             │
+│       → JSON extraction flow         │             │
+│              │                       │             │
+│              ▼                       │             │
+│     Step 4b: RAG Context Retrieval   │             │
+│     • Query KnowledgeBase (Pinecone) │             │
+│     • Embed user message via Ollama  │             │
+│     • Semantic search for relevant   │             │
+│       company knowledge chunks       │             │
+│              │                       │             │
+│              ▼                       │             │
+│     Step 4c: Build System Prompt     │             │
+│     • Persona prompt (ColorWhistle   │             │
+│       consultant persona)            │             │
+│     • RAG context (if available)     │             │
+│     • Already-collected data context │             │
+│       (to avoid re-asking)           │             │
+│     • JSON extraction instructions   │             │
+│              │                       │             │
+│              ▼                       │             │
+│     Step 4d: LLM Generation         │             │
+│     • Send system + history +        │             │
+│       user message to Ollama/Cloud   │             │
+│     • Temperature: 0.4               │             │
+│     • Expect structured JSON:        │             │
+│       { response, extracted_data }   │             │
+│              │                       │             │
+│              ▼                       │             │
+│     Step 4e: Response Processing     │             │
+│     • Parse JSON from code blocks    │             │
+│     • Validate extracted data        │             │
+│     • Regex fallback for name/email  │             │
+│     • Append gentle nudge for        │             │
+│       missing name/email (code-      │             │
+│       generated, not LLM-generated)  │             │
+│              │                       │             │
+│              ▼                       │             │
+│     Return ConversationResult:       │             │
+│     { reply, extracted_data }        │             │
+└──────────────┬───────────────────────┘             │
+               │                                     │
+               ▼                                     │
+┌──────────────────────────────────────┐             │
+│  5. BACK IN ORCHESTRATOR             │             │
+│     Post-Processing                  │             │
+│                                      │             │
+│     Step 5a: Apply Extracted Data    │             │
+│     • Map fields to session model:   │             │
+│       - personal_info: name, email,  │             │
+│         phone, company               │             │
+│       - tech_discovery: project_type,│             │
+│         tech_stack, features,        │             │
+│         integrations                 │             │
+│       - scope_pricing: budget,       │             │
+│         timeline, mvp_or_production, │             │
+│         priority_features            │             │
+│              │                       │             │
+│              ▼                       │             │
+│     Step 5b: Message Limit Check     │             │
+│     • If user_messages >= MAX:       │             │
+│       transition to LIMIT_WARNING    │             │
+│     • Otherwise: continue in         │             │
+│       CONVERSATION stage             │             │
+│              │                       │             │
+│              ▼                       │             │
+│     Step 5c: Save Session            │             │
+│     • Persist to MemoryStore         │             │
+│     • Update timestamps              │             │
+└──────────────┬───────────────────────┘             │
+               │                                     │
+               ▼                                     │
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│  6. SUMMARY AGENT (Stage 5) — 📋 Auto-triggered                            │
-│     • Builds context from collected data + conversation history             │
-│     • LLM generates structured lead summary (temp: 0.3)                    │
-│     • Presents summary to user for confirmation                             │
-│     • User confirms → advance to Email stage                                │
-│     • User requests changes → regenerate summary                            │
+│  6. COMPLETION (Background Tasks)                                            │
+│     Triggered when session reaches COMPLETED stage:                          │
+│     • User declines final input (No at limit warning)                        │
+│     • User submits final input                                               │
+│     • User resets/exits session while active                                 │
+│                                                                              │
+│     📋 Summarization Agent                                                   │
+│     • Builds context from collected data + conversation history              │
+│     • LLM generates dynamic, conversation-based summary (temp: 0.3)         │
+│     • Only includes data actually discussed (no placeholders)                │
+│                                                                              │
+│     📧 Email Agent                                                           │
+│     • Requires user email — skips all emails if no email provided            │
+│     • Composes 2 emails via LLM:                                             │
+│       - Thank-you email → client                                             │
+│       - Lead notification → admin team                                       │
+│     • Sends via SMTP (or mock-sends to console if not configured)            │
+│     • Saves to email_logs/ directory                                         │
 └──────────────────────────────────────────────────────────────────────────────┘
                │
                ▼
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│  7. EMAIL AGENT (Stage 6) — 📧 Auto-triggered                              │
-│     • Compose 2 emails via LLM:                                             │
-│       - Thank-you email → client                                            │
-│       - Lead notification → admin team                                      │
-│     • Mock-send (print to console + save to email_logs/)                    │
-│     • Transition to COMPLETED stage                                         │
-└──────────────────────────────────────────────────────────────────────────────┘
-               │
-               ▼
-┌──────────────────────────────────────────────────────────────────────────────┐
-│  8. RESPONSE RETURNED TO FRONTEND                                           │
+│  7. RESPONSE RETURNED TO FRONTEND                                           │
 │     ChatResponse { reply, stage, data_collected }                           │
 │     • Frontend updates chat messages                                        │
 │     • Stage indicator updates in header                                     │
@@ -252,18 +277,33 @@ The complete request lifecycle when a **user sends a message**:
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
+#### Key Design Decisions
+
+| Aspect | Approach | Rationale |
+|--------|----------|-----------|
+| **Single-section conversation** | No sub-stage routing (personal_info → tech → scope) | The LLM naturally handles mixed conversations; rigid stages felt robotic |
+| **Message limit enforcement** | `MAX_USER_MESSAGES` config, code-driven | Prevents infinite sessions; gives user a graceful exit path |
+| **Data extraction** | LLM JSON extraction + regex fallback | Small models sometimes fail JSON; regex catches name/email reliably |
+| **Gentle nudges** | Code-appended (not LLM-generated) | Prevents the LLM from repeating nudges or generating awkward asks |
+| **Budget handling** | Hard-coded redirect to human team | Business rule: never suggest pricing via chatbot |
+| **Irrelevant question filter** | Regex patterns before LLM call | Saves LLM calls for off-topic questions (weather, sports, etc.) |
+| **Summary/email dispatch** | Background async tasks | User gets immediate response; emails fire asynchronously |
+| **Email gate** | Requires user email address | No email = no notifications dispatched (prevents empty leads) |
+
 #### Key Decision Points
 
 | Decision Point | Logic | Type |
 |----------------|-------|------|
 | Stage routing | Based on `session.stage` enum | Code-driven |
 | Question vs Data detection | Regex pattern matching on user message | Code-driven |
+| Irrelevant question filtering | Regex patterns + relevant keyword whitelist | Code-driven |
 | RAG context retrieval | Embed question → Pinecone similarity search | AI-powered |
 | Conversation response | LLM generates reply + extracts data as JSON | AI-powered |
 | Data validation | Regex + cross-reference with user message | Code-driven |
-| Stage advancement | Check if required fields are collected | Code-driven |
-| Summary generation | LLM produces structured lead summary | AI-powered |
+| Message limit enforcement | Count user messages against MAX_USER_MESSAGES | Code-driven |
+| Summary generation | LLM produces dynamic, conversation-based summary | AI-powered |
 | Email composition | LLM composes personalized emails | AI-powered |
+| Email dispatch gate | Check if user provided an email address | Code-driven |
 
 ### API Endpoints
 
@@ -272,6 +312,7 @@ The complete request lifecycle when a **user sends a message**:
 | POST | `/api/chat` | Send a message and get AI response |
 | GET | `/api/session/{id}` | Get full session state |
 | POST | `/api/reset` | Reset a session |
+| POST | `/api/exit` | Trigger early exit (summary + email in background) |
 | GET | `/health` | Health check with LLM provider status |
 
 ## Folder Structure
@@ -285,9 +326,9 @@ chatbot/
 │   │   └── chat.py                    # Thin API handlers → orchestrator
 │   ├── services/
 │   │   ├── orchestrator.py            # 🎯 Agent coordinator & state manager
-│   │   ├── conversation_agent.py      # 🗣️ LLM-powered dialogue agent
+│   │   ├── conversation_agent.py      # 🗣️ LLM-powered dialogue (single block)
 │   │   ├── summarization_agent.py     # 📋 LLM-powered summary generator
-│   │   ├── email_agent.py            # 📧 LLM-powered email composer
+│   │   ├── email_agent.py            # 📧 LLM-powered email composer + SMTP
 │   │   ├── session_store.py          # Abstract session interface
 │   │   └── memory_store.py           # In-memory session implementation
 │   ├── models/
