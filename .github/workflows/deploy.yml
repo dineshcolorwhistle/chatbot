@@ -26,7 +26,8 @@ jobs:
             set -e
 
             cd /home/eduwhistle-chatbot/htdocs/chatbot.eduwhistle.com/chatbot
-
+            
+            git reset --hard
             git pull origin main
 
             chmod +x scripts/deploy.sh
