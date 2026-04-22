@@ -1,26 +1,44 @@
 #!/bin/bash
 set -e
 
+APP_USER="eduwhistle-chatbot"
 PROJECT_DIR="/home/eduwhistle-chatbot/htdocs/chatbot.eduwhistle.com/chatbot"
 
+echo "🔄 Switching to app user..."
 cd $PROJECT_DIR
 
+# Ensure correct ownership (idempotent safety)
+echo "🔐 Fixing ownership..."
+chown -R $APP_USER:$APP_USER $PROJECT_DIR
+
 echo "🔄 Resetting repo..."
-git reset --hard
+sudo -u $APP_USER git reset --hard
 
 echo "⬇️ Pulling latest code..."
-git pull origin main
+sudo -u $APP_USER git pull origin main
 
 # Backend
+echo "⚙️ Backend setup..."
 cd backend
-source venv/bin/activate
-pip install -r requirements.txt
+sudo -u $APP_USER bash -c "source venv/bin/activate && pip install -r requirements.txt"
 
-sudo systemctl restart chatbot.service
+echo "🔁 Restarting backend service..."
+systemctl restart chatbot.service
 
 # Frontend
+echo "🎨 Frontend build..."
 cd ../frontend
-npm ci
-npm run build
+
+# Clean old build (important)
+sudo -u $APP_USER rm -rf dist
+
+# Install & build
+sudo -u $APP_USER npm ci
+sudo -u $APP_USER npm run build
+
+# Build widget and copy to dist
+echo "🎨 Widget build..."
+sudo -u $APP_USER npm run build:widget
+sudo -u $APP_USER cp dist-widget/widget.js dist/
 
 echo "✅ Deployment complete"
