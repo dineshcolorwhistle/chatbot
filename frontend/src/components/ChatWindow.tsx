@@ -104,10 +104,10 @@ export default function ChatWindow({
   useEffect(() => {
     const handleBeforeUnload = () => {
       if (sessionId && currentStage !== "completed" && currentStage !== "welcome") {
-        exitSession(sessionId).catch(() => {});
+        exitSession(sessionId).catch(() => { });
       }
     };
-    
+
     window.addEventListener("beforeunload", handleBeforeUnload);
     return () => {
       window.removeEventListener("beforeunload", handleBeforeUnload);
@@ -145,7 +145,7 @@ export default function ChatWindow({
       timestamp: new Date(),
     };
     setMessages((prev) => [...prev, userMsg]);
-    
+
     if (messageOverride === undefined) {
       setInput("");
       // Reset textarea height
@@ -242,7 +242,7 @@ export default function ChatWindow({
           <div className="chat-logo">
             <img src="/logo.svg" alt="ColorWhistle Logo" className="logo-icon" />
             <div className="logo-text">
-              <h1>ColorWhistle</h1>
+              <h1>ColorWhistle chatbot</h1>
               <span className="subtitle">AI Project Consultant</span>
             </div>
           </div>
