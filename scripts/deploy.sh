@@ -1,39 +1,91 @@
 #!/bin/bash
-set -e
 
-PROJECT_DIR="/home/eduwhistle-chatbot/htdocs/chatbot.eduwhistle.com/chatbot"
+set -e  # stop on error
+
+echo "🚀 Starting deployment..."
+
+PROJECT_DIR="/home/eduwhistle-aichat/htdocs/aichat.eduwhistle.com/chatbot"
+BACKEND_DIR="$PROJECT_DIR/backend"
+FRONTEND_DIR="$PROJECT_DIR/frontend"
 
 cd $PROJECT_DIR
 
 echo "🔄 Resetting repo..."
-git reset --hard
+git fetch origin
+git reset --hard origin/main
+git clean -fd
 
-echo "⬇️ Pulling latest code..."
-git pull origin main
+echo "⬇️ Latest code synced"
 
-# Backend
+# -----------------------
+# Backend Setup
+# -----------------------
 echo "⚙️ Backend setup..."
-cd backend
+
+cd $BACKEND_DIR
+
+# Ensure venv exists
+if [ ! -d "venv" ]; then
+  echo "📦 Creating virtual environment..."
+  python3 -m venv venv
+fi
+
 source venv/bin/activate
+
+echo "📦 Installing Python dependencies..."
+pip install --upgrade pip
 pip install -r requirements.txt
 
+# -----------------------
+# Restart Backend
+# -----------------------
 echo "🔁 Restarting backend service..."
-sudo systemctl restart chatbot.service
+sudo systemctl restart aichat
 
-# Frontend
-cd ../frontend
+# Verify service
+sleep 2
+if ! systemctl is-active --quiet aichat; then
+  echo "❌ Backend failed to start"
+  journalctl -u aichat -n 50 --no-pager
+  exit 1
+fi
+
+echo "✅ Backend is running"
+
+# -----------------------
+# Frontend Setup
+# -----------------------
+echo "🎨 Frontend build..."
+
+cd $FRONTEND_DIR
 
 echo "🧹 Cleaning old build..."
-rm -rf dist
+rm -rf dist dist-widget
 
-echo "📦 Installing deps..."
+# Optional: ensure correct node version
+# source ~/.nvm/nvm.sh
+# nvm use 18
+
+echo "📦 Installing dependencies..."
 npm ci
 
-echo "🏗️ Building..."
+echo "🏗️ Building frontend..."
 npm run build
 
-echo "🎨 Widget build..."
+echo "🧩 Building widget..."
 npm run build:widget
-cp dist-widget/widget.js dist/
 
-echo "✅ Deployment complete"
+# Ensure widget copy
+if [ -f "dist-widget/widget.js" ]; then
+  cp dist-widget/widget.js dist/
+else
+  echo "❌ widget.js not found!"
+  exit 1
+fi
+
+echo "✅ Frontend build complete"
+
+# -----------------------
+# Done
+# -----------------------
+echo "🎉 Deployment completed successfully!"
