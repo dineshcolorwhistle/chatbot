@@ -22,14 +22,14 @@ jobs:
 
       - name: Deploy to server
         run: |
-          ssh ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} << 'EOF'
+          ssh -o StrictHostKeyChecking=no ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} << 'EOF'
             set -e
 
-            cd /home/eduwhistle-chatbot/htdocs/chatbot.eduwhistle.com/chatbot
-            
-            git reset --hard
-            git pull origin main
+            PROJECT_DIR="/home/eduwhistle-chatbot/htdocs/chatbot.eduwhistle.com/chatbot"
 
-            chmod +x scripts/deploy.sh
-            bash scripts/deploy.sh
+            cd $PROJECT_DIR
+
+            echo "➡️ Run deployment as app user"
+            sudo -u eduwhistle-chatbot bash scripts/deploy.sh
+
           EOF
