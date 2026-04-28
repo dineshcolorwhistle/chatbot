@@ -25,5 +25,10 @@ jobs:
             echo "➡️ Switching to project directory"
             cd $PROJECT_DIR
 
+            echo "🔄 Force updating code..."
+            git fetch origin
+            git reset --hard origin/main
+            git clean -fd
+
             echo "🚀 Running deployment script"
             bash scripts/deploy.sh
