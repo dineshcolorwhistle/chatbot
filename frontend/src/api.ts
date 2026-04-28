@@ -17,7 +17,7 @@
  * In widget mode, this is overridden via setApiBaseUrl()
  * which reads from the <script data-api-url="..."> attribute.
  */
-let API_BASE_URL = "http://localhost:8000/api";
+let API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000/api";
 
 /**
  * Override the API base URL at runtime.
@@ -255,7 +255,7 @@ export async function exitSession(
  */
 export async function checkHealth(): Promise<HealthResponse> {
   const response = await safeFetch(
-    "http://localhost:8000/health",
+    API_BASE_URL.replace(/\/api$/, "/health"),
     {},
     0, // No retries for health checks
     5_000 // 5 second timeout

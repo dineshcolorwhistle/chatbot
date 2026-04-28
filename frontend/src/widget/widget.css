@@ -428,6 +428,51 @@
   padding: 4px !important;
 }
 
+/* ---- Widget-specific overrides for spacing & alignment ---- */
+
+/* Messages area — tighter but balanced padding in widget */
+.cw-chat-widget .chat-container .messages-area {
+  padding: 16px 14px !important;
+  gap: 12px !important;
+}
+
+/* Input area — consistent horizontal padding matching messages */
+.cw-chat-widget .chat-container .input-area {
+  padding: 12px 14px 10px !important;
+}
+
+/* Input wrapper — ensure proper inner spacing */
+.cw-chat-widget .chat-container .input-wrapper {
+  padding: 4px 4px 4px 14px !important;
+  border: 1px solid var(--cw-border-subtle) !important;
+  border-radius: 14px !important;
+  background: var(--cw-bg-input) !important;
+}
+
+/* Focus state for input wrapper */
+.cw-chat-widget .chat-container .input-wrapper:focus-within {
+  border-color: var(--cw-accent-color) !important;
+  box-shadow: 0 0 0 3px var(--cw-accent-glow) !important;
+}
+
+/* Textarea inside widget — ensure clean styling */
+.cw-chat-widget .chat-container .input-wrapper textarea {
+  padding: 8px 0 !important;
+  line-height: 1.5 !important;
+  background: none !important;
+}
+
+/* Message bubbles — slightly wider to fill widget panel better */
+.cw-chat-widget .chat-container .message-bubble {
+  max-width: 80% !important;
+}
+
+/* Input hint text */
+.cw-chat-widget .chat-container .input-hint {
+  padding-top: 6px !important;
+  font-size: 10px !important;
+}
+
 /* ---- Powered By Footer ---- */
 
 .cw-chat-widget .cw-powered-by {

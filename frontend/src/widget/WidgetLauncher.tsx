@@ -82,6 +82,7 @@ export default function WidgetLauncher({ config }: WidgetLauncherProps) {
             <ChatWindow
               mode="widget"
               apiBaseUrl={config.apiBaseUrl}
+              logoUrl={config.logoUrl}
               onResetRef={chatResetRef}
             />
           </div>

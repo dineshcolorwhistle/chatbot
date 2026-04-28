@@ -61,17 +61,18 @@ PERSONA_PROMPT = """You are a friendly, professional project consultant for Colo
 STRICT RULES:
 - Keep responses to 2-3 sentences maximum.
 - Sound natural and human-like. Act completely like a human.
-- When greeting the user, you MUST start your message with the name "ColorWhistle" (e.g. "Welcome to ColorWhistle!", "Hello from ColorWhistle!").
-- Wherever appropriate and needed, use the name "ColorWhistle".
+- NEVER greet the user with "Welcome to ColorWhistle!" or any welcome message. The system has already greeted them. Jump straight into addressing their message.
+- You may refer to "ColorWhistle" naturally when discussing services or capabilities, but do NOT use it as a greeting.
 - Never mention being an AI or LLM.
-- ALWAYS answer the user's question or respond to their message FIRST.
+- ALWAYS answer the user's question or respond to their message FIRST. This is the #1 priority.
 - NEVER suggest any price or costing.
 - If the user asks about budget or pricing, respond with: "Our team will reach out and discuss about the budget with you."
 - Try to understand the technical details from the user's input, but do NOT forcefully ask for them.
 - If the user asks a question about ColorWhistle services, answer it using ONLY the knowledge base context provided below (if any). If no relevant knowledge base context is available, say: "I don't have specific details about that right now, but I can have our team follow up with you on this."
 - If the user asks something completely unrelated to web development or ColorWhistle, politely steer back to the project consultation.
 - NEVER make up or guess information about ColorWhistle's services, pricing, or capabilities.
-- IMPORTANT: Do NOT ask the user any questions like "What is your name?", "What is your email?", or "What are your features?". The automated system will append polite requests to the end of your response when needed.
+- CRITICAL: Do NOT ask the user for their name, email, phone, company, or location AT ANY POINT. The system handles contact collection separately.
+- If the user voluntarily introduces themselves (e.g. "I'm John"), acknowledge them warmly by name and continue the conversation.
 - ONLY generate the consultant's immediate reply. NEVER simulate, predict, or write out the user's next response. Stop generating immediately after your own reply."""
 
 
@@ -88,7 +89,7 @@ RULES FOR extracted_data:
 - If the user asked a question, set extracted_data to {} (empty).
 - Do NOT guess or invent data.
 - Do NOT simulate or predict the user's next response inside the "response" property. Limit the "response" string solely to the consultant's immediate reply.
-- Use field names: "name", "email", "project_type", "tech_stack", "features", "integrations", "budget", "timeline"
+- Use field names: "name", "email", "company", "location", "project_type", "tech_stack", "features", "integrations", "budget", "timeline"
 """
 
 
@@ -197,18 +198,10 @@ class ConversationAgent:
         self._knowledge_base = knowledge_base
 
     def _clean_history_content(self, content: str) -> str:
-        """Remove appended automated nudges from history so the LLM doesn't learn and parrot them."""
-        nudges = [
-            r"By the way, may I know your name\? 😊",
-            r"By the way, when you're ready, could you please share your name\? 😊",
-            r"Thanks, .*? Could you also share your email address so we can follow up\? 😊",
-            r"Thanks, .*?! Could you also share your email address so we can follow up\? 😊",
-            r"Before we wrap up, could you share your name so we can personalize your experience\? 😊",
-            r"Before we wrap up, could you please share your email address so our team can follow up with you\? 😊",
-        ]
-        cleansed = content
-        for nudge in nudges:
-            cleansed = re.sub(nudge, "", cleansed, flags=re.IGNORECASE).strip()
+        """Remove appended automated requests from history so the LLM doesn't learn and parrot them."""
+        # Remove the contact details request block if present
+        contact_block_pattern = r"\n\n---\n.*?(?:Your name|Email address|Company name|Location).*$"
+        cleansed = re.sub(contact_block_pattern, "", content, flags=re.IGNORECASE | re.DOTALL).strip()
         return cleansed
 
     async def process_message(
@@ -322,6 +315,8 @@ class ConversationAgent:
 
                 # Clean up: strip any JSON artifacts the model may produce
                 answer = self._clean_answer_response(answer)
+                # Strip any redundant greeting the LLM may have produced
+                answer = self._strip_greeting_from_reply(answer)
 
             if not answer:
                 answer = (
@@ -334,11 +329,6 @@ class ConversationAgent:
             regex_data = self._regex_extract_personal_info(user_message)
             if regex_data:
                 logger.info("Regex extracted data from question: %s", list(regex_data.keys()))
-
-            # Append gentle nudge for name/email if still missing
-            nudge = self._build_gentle_nudge(session, regex_data)
-            if nudge and nudge not in answer:
-                answer = f"{answer}\n\n{nudge}"
 
             return ConversationResult(
                 reply=answer,
@@ -423,6 +413,9 @@ class ConversationAgent:
             # Parse the structured response
             reply, extracted_data = self._parse_llm_response(raw_content)
 
+            # Strip any redundant greeting the LLM may have produced
+            reply = self._strip_greeting_from_reply(reply)
+
             # Enforce budget rule for hybrid messages (e.g. "I am Bob. How much does it cost?")
             is_budget_inquiry = bool(re.search(r"\b(budget|cost|price|pricing|how much|amount)\b", user_message, re.IGNORECASE))
             if is_budget_inquiry and "?" in user_message:
@@ -441,11 +434,6 @@ class ConversationAgent:
                     logger.info(
                         "Regex fallback extracted %s: %s", field_name, value
                     )
-
-            # Append gentle nudge for name/email if still missing
-            nudge = self._build_gentle_nudge(session, validated_data)
-            if nudge and nudge not in reply:
-                reply = f"{reply}\n\n{nudge}"
 
             return ConversationResult(
                 reply=reply,
@@ -556,16 +544,23 @@ class ConversationAgent:
             "If you don't have the answer, say: \"I don't have specific details about that right now, but I can have our team follow up with you.\"",
             "",
             "RULES:",
-            "- Answer the user's question directly.",
-            "- Do NOT ask the user for their name, email, or any missing information. Our automated system will append this.",
+            "- Answer the user's question directly. This is the #1 priority.",
+            "- NEVER greet the user with 'Welcome to ColorWhistle!' or any welcome/hello message. The system has already greeted them. Jump straight into answering.",
+            "- CRITICAL: Do NOT ask the user for their name, email, phone, company, or location. The system handles this separately.",
+            "- If the user has already shared their name (shown in ALREADY COLLECTED below), address them by name naturally.",
             "- Do NOT output JSON. Just write a plain text answer.",
             "- Keep it short: 2-3 sentences maximum.",
             "- Do NOT say you are an AI. Act completely like a human.",
-            "- Make sure to use the name 'ColorWhistle' where applicable.",
+            "- You may refer to 'ColorWhistle' naturally when discussing services, but do NOT use it as a greeting.",
             "- CRITICAL: If the user asks about budget or pricing, respond EXACTLY with: 'Our team will reach out and discuss about the budget with you.'",
             "- NEVER make up information about ColorWhistle. Only use the company info below.",
             "- ONLY generate the consultant's immediate reply. NEVER simulate, predict, or write out the user's next response. Stop generating immediately after your own reply.",
         ]
+
+        # Add context of already-collected data so the LLM knows the user's name
+        collected_context = self._build_collected_context(session)
+        if collected_context:
+            parts.append(collected_context)
 
         if rag_context:
             parts.append("")
@@ -626,6 +621,10 @@ class ConversationAgent:
             collected_items.append(f"- Name: {pi.name}")
         if pi.email:
             collected_items.append(f"- Email: {pi.email}")
+        if pi.company:
+            collected_items.append(f"- Company: {pi.company}")
+        if pi.location:
+            collected_items.append(f"- Location: {pi.location}")
 
         # Tech discovery
         td = data.tech_discovery
@@ -657,50 +656,60 @@ class ConversationAgent:
 
         return ""
 
-    def _build_gentle_nudge(
-        self, session: Session, pending_data: dict
-    ) -> str:
-        """Build a code-generated gentle nudge for missing name/email.
+    def build_contact_details_request(self, session: Session) -> str:
+        """Build a one-time polite request for contact details.
 
-        This is appended to the LLM's answer via code, NOT
-        generated by the LLM, so the nudge is always correct.
-        It checks chat history to avoid repeating the same nudge.
+        Called by the orchestrator at the 4th response (one step before
+        the max limit). Asks for all missing contact details in a single
+        block — polite and non-forceful.
+
+        Only asks for fields that haven't been collected yet.
+        Company name and location are always marked as optional.
 
         Args:
             session: The current session state.
-            pending_data: Data extracted from the current message (not yet in session).
 
         Returns:
-            A gentle data request string, or empty string if nothing needed.
+            A formatted contact details request string, or empty
+            string if all required fields are already collected.
         """
         pi = session.collected_data.personal_info
 
-        has_name = pi.name or pending_data.get("name")
-        has_email = pi.email or pending_data.get("email")
+        missing_fields: list[str] = []
 
-        # If both are collected, no nudge needed
-        if has_name and has_email:
+        if not pi.name:
+            missing_fields.append("• Your name")
+        if not pi.email:
+            missing_fields.append("• Email address")
+        if not pi.company:
+            missing_fields.append("• Company name (optional)")
+        if not pi.location:
+            missing_fields.append("• Location (optional)")
+
+        # If we already have name and email, only ask optional fields
+        # if neither is collected yet
+        if pi.name and pi.email and not pi.company and not pi.location:
+            # Only optional fields missing — still ask politely
+            missing_fields = [
+                "• Company name (optional)",
+                "• Location (optional)",
+            ]
+        elif pi.name and pi.email:
+            # Everything is collected
             return ""
 
-        # Check last bot message to avoid repeating the same nudge
-        history = session.get_history_for_llm()
-        last_bot_msg = ""
-        for msg in reversed(history):
-            if msg["role"] == "assistant":
-                last_bot_msg = msg["content"].lower()
-                break
+        if not missing_fields:
+            return ""
 
-        if not has_name:
-            if "share your name" in last_bot_msg or "may i know your name" in last_bot_msg:
-                return ""
-            return "Before we wrap up, could you share your name so we can personalize your experience? 😊"
-        elif not has_email:
-            if "share your email" in last_bot_msg or "email address so" in last_bot_msg:
-                return ""
-            name_to_use = pi.name or pending_data.get("name", "")
-            return f"Thanks, {name_to_use}! Could you also share your email address so our team can follow up with you? 😊"
+        fields_text = "\n".join(missing_fields)
 
-        return ""
+        return (
+            f"---\n"
+            f"By the way, we'd love to stay connected! "
+            f"Whenever you're ready, could you share:\n"
+            f"{fields_text}\n\n"
+            f"This helps our team follow up with you properly. 😊"
+        )
 
     def _clean_answer_response(self, raw: str) -> str:
         """Clean up an answer-only response from the LLM.
@@ -742,6 +751,34 @@ class ConversationAgent:
         text = "\n".join(clean_lines).strip()
 
         return text
+
+    def _strip_greeting_from_reply(self, reply: str) -> str:
+        """Strip redundant welcome/greeting lines from an LLM reply.
+
+        The orchestrator already sends the welcome message, so any
+        "Welcome to ColorWhistle!" or similar greetings in subsequent
+        LLM responses are duplicates. This removes them.
+
+        Args:
+            reply: The LLM's reply text.
+
+        Returns:
+            The reply with greeting lines removed.
+        """
+        # Patterns that match greeting lines the LLM might produce
+        greeting_patterns = [
+            r"^(?:👋\s*)?(?:Hello!?\s*)?Welcome to ColorWhistle[.!]*\s*",
+            r"^(?:👋\s*)?Hello from ColorWhistle[.!]*\s*",
+            r"^(?:👋\s*)?Welcome! I'm your project consultant[^.]*\.\s*",
+            r"^(?:👋\s*)?Hi there! Welcome to ColorWhistle[.!]*\s*",
+        ]
+
+        cleaned = reply.strip()
+        for pattern in greeting_patterns:
+            cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE).strip()
+
+        # If stripping removed everything, return original
+        return cleaned if cleaned else reply.strip()
 
     # ============================================
     # Response Parsing

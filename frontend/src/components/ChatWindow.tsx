@@ -46,6 +46,8 @@ interface ChatWindowProps {
   mode?: "page" | "widget";
   /** Override API base URL (used in widget mode). */
   apiBaseUrl?: string;
+  /** Override logo URL (used in widget mode). */
+  logoUrl?: string;
   /**
    * Ref callback for the parent to trigger a session reset.
    * WidgetLauncher sets this to call handleReset from outside.
@@ -60,8 +62,11 @@ interface ChatWindowProps {
 export default function ChatWindow({
   mode = "page",
   apiBaseUrl,
+  logoUrl: logoUrlProp,
   onResetRef,
 }: ChatWindowProps) {
+  // Resolve logo URL: prop (widget mode) > env variable > fallback
+  const resolvedLogoUrl = logoUrlProp || import.meta.env.VITE_LOGO_URL || "/logo.svg";
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -240,7 +245,7 @@ export default function ChatWindow({
       <header className="chat-header">
         <div className="chat-header-left">
           <div className="chat-logo">
-            <img src="/logo.svg" alt="ColorWhistle Logo" className="logo-icon" />
+            <img src={resolvedLogoUrl} alt="ColorWhistle Logo" className="logo-icon" />
             <div className="logo-text">
               <h1>ColorWhistle chatbot</h1>
               <span className="subtitle">AI Project Consultant</span>
@@ -290,7 +295,7 @@ export default function ChatWindow({
           <div key={msg.id} className={`message ${msg.role}`}>
             {msg.role === "assistant" && (
               <div className="avatar bot-avatar">
-                <img src="/logo.svg" alt="Bot" style={{ width: '20px', height: '20px', objectFit: 'contain' }} />
+                <img src={resolvedLogoUrl} alt="Bot" style={{ width: '20px', height: '20px', objectFit: 'contain' }} />
               </div>
             )}
             <div className="message-bubble">
@@ -321,7 +326,7 @@ export default function ChatWindow({
         {isLoading && (
           <div className="message assistant">
             <div className="avatar bot-avatar">
-              <img src="/logo.svg" alt="Bot" style={{ width: '20px', height: '20px', objectFit: 'contain' }} />
+              <img src={resolvedLogoUrl} alt="Bot" style={{ width: '20px', height: '20px', objectFit: 'contain' }} />
             </div>
             <div className="message-bubble typing-indicator">
               <div className="typing-dots">

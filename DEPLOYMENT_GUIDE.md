@@ -65,9 +65,17 @@ cd /path/to/your/chatbot/frontend
 # Install dependencies
 npm install
 
+
+cd /home/eduwhistle-chatbot/htdocs/chatbot.eduwhistle.com/chatbot/frontend
+
+npm ci
+
 # Build the Frontend 
 # For Widget:
 npm run build:widget
+
+cp dist-widget/widget.js dist/
+
 
 # For Full-page app (optional):
 npm run build

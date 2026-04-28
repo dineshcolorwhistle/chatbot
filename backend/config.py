@@ -67,6 +67,15 @@ class PineconeConfig:
 
 
 @dataclass(frozen=True)
+class MongoConfig:
+    """MongoDB database configuration."""
+
+    uri: str = ""
+    db_name: str = "chatbot_sessions"
+    collection_name: str = "chatbot"
+
+
+@dataclass(frozen=True)
 class EmbeddingConfig:
     """Embedding model configuration."""
 
@@ -124,6 +133,13 @@ def _load_pinecone_config() -> PineconeConfig:
     )
 
 
+def _load_mongo_config() -> MongoConfig:
+    """Load MongoDB configuration from environment variables."""
+    return MongoConfig(
+        uri=os.getenv("MONGODB_URI", ""),
+    )
+
+
 def _load_embedding_config() -> EmbeddingConfig:
     """Load embedding model configuration from environment variables."""
     return EmbeddingConfig(
@@ -137,4 +153,5 @@ def _load_embedding_config() -> EmbeddingConfig:
 llm_config = _load_llm_config()
 app_config = _load_app_config()
 pinecone_config = _load_pinecone_config()
+mongo_config = _load_mongo_config()
 embedding_config = _load_embedding_config()

@@ -17,3 +17,6 @@ pydantic==2.11.1
 # RAG Pipeline — Knowledge Base
 pinecone==6.0.2
 PyMuPDF==1.25.5
+
+# Database connectivity
+motor==3.6.0

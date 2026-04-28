@@ -76,6 +76,7 @@ class PersonalInfo(BaseModel):
     email: str | None = None
     phone: str | None = None
     company: str | None = None
+    location: str | None = None
 
     def is_complete(self) -> bool:
         """Check if all required personal fields are collected.
@@ -178,6 +179,8 @@ class CollectedData(BaseModel):
             result["Phone"] = self.personal_info.phone
         if self.personal_info.company:
             result["Company"] = self.personal_info.company
+        if self.personal_info.location:
+            result["Location"] = self.personal_info.location
 
         # Tech discovery
         if self.tech_discovery.project_type:

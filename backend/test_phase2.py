@@ -6,7 +6,7 @@ from models.schemas import (
     PersonalInfo, TechDiscovery, ScopePricing, CollectedData,
     Session, ChatRequest, ChatResponse,
 )
-from services.memory_store import session_store
+from services.mongo_store import session_store
 
 
 async def test_all():

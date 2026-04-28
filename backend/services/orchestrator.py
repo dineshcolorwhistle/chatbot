@@ -22,6 +22,7 @@ Design:
 
 import logging
 import asyncio
+import re
 from datetime import datetime
 
 from models.schemas import (
@@ -222,6 +223,11 @@ class Orchestrator:
         Routes the message through the Conversation Agent, applies
         extracted data, and checks message limits.
 
+        At the penultimate message (one before max), appends a
+        polite one-time request for contact details (name, email,
+        company, location) so the user can provide them before
+        the session ends.
+
         Args:
             session: The current session.
             message: The user's message.
@@ -245,17 +251,48 @@ class Orchestrator:
 
         # Check if user reached the message limit
         # user_msg_count was count BEFORE this message, so +1 = current total
-        if user_msg_count + 1 >= app_config.max_user_messages:
+        current_msg_number = user_msg_count + 1
+
+        if current_msg_number >= app_config.max_user_messages:
+            # Max messages reached — transition to limit warning
+            # Include the agent's response so the user's message is still answered
             session.stage = ConversationStage.LIMIT_WARNING
-            base_reply = (
+
+            # Retroactive scan: before claiming data is missing, scan ALL
+            # user messages in history for names/emails that may have been
+            # missed by the LLM extraction in earlier turns.
+            self._retroactive_extract_from_history(session)
+
+            pi = session.collected_data.personal_info
+            has_name = bool(pi.name)
+            has_email = bool(pi.email)
+
+            limit_notice = (
                 "You've reached the maximum number of interactions for this session. "
                 "Our team will review your request and get back to you shortly.\n\n"
             )
-            has_email = bool(session.collected_data.personal_info.email)
-            if not has_email:
-                reply = base_reply + "We noticed you haven't provided your email address. Would you like to provide your name and email in a single message so we can get in touch? (Yes/No)"
+
+            if not has_name or not has_email:
+                missing_parts = []
+                if not has_name:
+                    missing_parts.append("name")
+                if not has_email:
+                    missing_parts.append("email")
+                missing_str = " and ".join(missing_parts)
+                limit_notice += (
+                    f"We noticed you haven't shared your {missing_str} yet. "
+                    f"Would you like to provide your details in a single message "
+                    f"so we can get in touch? (Yes/No)"
+                )
             else:
-                reply = base_reply + "Would you like to provide any remaining details in a single message before we wrap up? (Yes/No)"
+                limit_notice += (
+                    f"Would you like to provide any remaining details in a "
+                    f"single message before we wrap up? (Yes/No)"
+                )
+
+            # Prepend the agent's actual answer so the user's question isn't ignored
+            reply = f"{result.reply}\n\n{limit_notice}"
+
             session.add_message("assistant", reply)
             await self._session_store.save(session)
             return ChatResponse(
@@ -264,12 +301,24 @@ class Orchestrator:
                 data_collected=session.collected_data.to_summary_dict(),
             )
 
+        # Penultimate message — append contact details request
+        reply = result.reply
+        if current_msg_number == app_config.max_user_messages - 1:
+            contact_request = self._conversation_agent.build_contact_details_request(session)
+            if contact_request:
+                reply = f"{reply}\n\n{contact_request}"
+                logger.info(
+                    "Appended contact details request at message %d/%d",
+                    current_msg_number,
+                    app_config.max_user_messages,
+                )
+
         # Save and return normal conversation reply
-        session.add_message("assistant", result.reply)
+        session.add_message("assistant", reply)
         await self._session_store.save(session)
 
         return ChatResponse(
-            reply=result.reply,
+            reply=reply,
             stage=session.stage,
             data_collected=session.collected_data.to_summary_dict(),
         )
@@ -284,9 +333,17 @@ class Orchestrator:
         
         if is_yes and not is_no:
             session.stage = ConversationStage.FINAL_INPUT
-            has_email = bool(session.collected_data.personal_info.email)
-            if not has_email:
-                reply = "Please provide your name and email address, along with any final details, in a single message."
+            # Retroactive scan before checking what's missing
+            self._retroactive_extract_from_history(session)
+            pi = session.collected_data.personal_info
+            missing = []
+            if not pi.name:
+                missing.append("name")
+            if not pi.email:
+                missing.append("email address")
+            if missing:
+                missing_str = ", ".join(missing)
+                reply = f"Please share your {missing_str} along with any final details in a single message."
             else:
                 reply = "Please provide your complete requirements in a single message."
             session.add_message("assistant", reply)
@@ -383,6 +440,9 @@ class Orchestrator:
             elif field == "company" and not data.personal_info.company:
                 data.personal_info.company = value_str
                 logger.info("Extracted company: %s", value_str)
+            elif field == "location" and not data.personal_info.location:
+                data.personal_info.location = value_str
+                logger.info("Extracted location: %s", value_str)
 
             # Tech discovery fields
             elif field == "project_type" and not data.tech_discovery.project_type:
@@ -413,6 +473,75 @@ class Orchestrator:
                 logger.info("Extracted priority_features: %s", value_str)
 
         session.updated_at = datetime.utcnow()
+
+    def _retroactive_extract_from_history(self, session: Session) -> None:
+        """Scan ALL user messages in history for names and emails.
+
+        This is a safety net used before displaying messages that claim
+        the user hasn't shared certain data. If the LLM extraction
+        missed a name or email from a previous turn, this regex-based
+        scan catches it.
+
+        Only fills in fields that are still empty — never overwrites
+        previously extracted values.
+
+        Args:
+            session: The session whose history to scan.
+        """
+        pi = session.collected_data.personal_info
+
+        # Only scan if we're still missing name or email
+        if pi.name and pi.email:
+            return
+
+        # Gather all user messages
+        user_messages = [
+            msg.content for msg in session.conversation_history
+            if msg.role == "user"
+        ]
+
+        for msg_text in user_messages:
+            # Extract name if missing
+            if not pi.name:
+                name_patterns = [
+                    r"(?:my name is|i am|i'm|call me|name's|this is)\s+([A-Za-z][A-Za-z\s\.\-']{1,40})",
+                ]
+                for pattern in name_patterns:
+                    match = re.search(pattern, msg_text, re.IGNORECASE)
+                    if match:
+                        name_candidate = match.group(1).strip()
+                        # Clean trailing words that aren't part of the name
+                        name_candidate = re.split(
+                            r'\b(?:and|from|at|in|with|here|please|thanks|thank|looking|need|want|interested)\b',
+                            name_candidate, flags=re.IGNORECASE
+                        )[0].strip()
+                        if name_candidate and len(name_candidate) >= 2:
+                            pi.name = name_candidate
+                            logger.info(
+                                "Retroactive scan extracted name: %s",
+                                name_candidate,
+                            )
+                            break
+
+            # Extract email if missing
+            if not pi.email:
+                email_match = re.search(
+                    r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}',
+                    msg_text,
+                )
+                if email_match:
+                    pi.email = email_match.group(0)
+                    logger.info(
+                        "Retroactive scan extracted email: %s",
+                        pi.email,
+                    )
+
+            # Stop scanning if we have everything
+            if pi.name and pi.email:
+                break
+
+        if pi.name or pi.email:
+            session.updated_at = datetime.utcnow()
 
     async def get_session(self, session_id: str) -> Session | None:
         """Get a session by ID (for API introspection).

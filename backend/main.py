@@ -19,7 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from config import app_config, pinecone_config
 from providers.factory import create_llm_provider
 from services.orchestrator import Orchestrator
-from services.memory_store import session_store
+from services.mongo_store import session_store
 from services.knowledge_base import KnowledgeBase
 from routes.chat import router as chat_router
 from routes.admin import router as admin_router
