@@ -255,7 +255,7 @@ export async function exitSession(
  */
 export async function checkHealth(): Promise<HealthResponse> {
   const response = await safeFetch(
-    API_BASE_URL.replace(/\/api$/, "/health"),
+    `${API_BASE_URL}/health`,
     {},
     0, // No retries for health checks
     5_000 // 5 second timeout

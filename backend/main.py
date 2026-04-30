@@ -130,6 +130,7 @@ app.include_router(admin_router)
 # --- Health & Status Endpoints ---
 
 
+@app.get("/api/health")
 @app.get("/health")
 async def health_check():
     """Application health check endpoint."""
@@ -137,14 +138,28 @@ async def health_check():
     if app.state.llm_provider:
         llm_healthy = await app.state.llm_provider.health_check()
 
+    # Also check MongoDB health
+    db_healthy = False
+    try:
+        from services.mongo_store import session_store
+        # Simple ping to check connection
+        await session_store._db.command("ping")
+        db_healthy = True
+    except Exception as e:
+        logger.error(f"MongoDB health check failed: {e}")
+
     return {
-        "status": "healthy",
+        "status": "healthy" if llm_healthy and db_healthy else "degraded",
         "llm_provider": {
             "healthy": llm_healthy,
             "provider": app.state.llm_provider.__class__.__name__
             if app.state.llm_provider
             else None,
         },
+        "database": {
+            "healthy": db_healthy,
+            "provider": "MongoDB"
+        }
     }
 
 
