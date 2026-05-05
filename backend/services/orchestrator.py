@@ -324,14 +324,48 @@ class Orchestrator:
         )
 
     async def _handle_limit_warning(self, session: Session, message: str) -> ChatResponse:
-        """Handle user's response to the limit reached warning."""
+        """Handle user's response to the limit reached warning.
+
+        Accepts three types of responses:
+        1. Explicit "Yes" — transitions to FINAL_INPUT to collect remaining data.
+        2. Explicit "No" — completes session immediately.
+        3. Direct data provision (e.g. "Dinesh, dinesh@gmail.com") — treated as
+           implicit Yes. Extracts the data directly from this message and completes
+           the session with a thank-you, skipping the FINAL_INPUT round-trip.
+        """
         session.add_message("user", message)
-        
+
         msg_lower = message.strip().lower()
         is_yes = any(msg_lower.startswith(w) or msg_lower == w for w in ["yes", "y", "sure", "ok", "okay", "yeah", "yep"])
         is_no = any(msg_lower.startswith(w) or msg_lower == w for w in ["no", "n", "nope", "cancel", "nah"])
-        
-        if is_yes and not is_no:
+
+        # Detect if the user is directly providing contact data instead of Yes/No.
+        # An email address in the message is a strong signal.
+        has_email_in_msg = bool(re.search(
+            r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', message
+        ))
+
+        if not is_yes and not is_no and has_email_in_msg:
+            # User answered with their contact details directly — treat as implicit Yes + data.
+            logger.info(
+                "Limit warning: user provided contact data directly (implicit Yes) — "
+                "extracting and completing session."
+            )
+            # Extract name/email from this message via retroactive scan
+            self._retroactive_extract_from_history(session)
+
+            session.stage = ConversationStage.COMPLETED
+            reply = (
+                "Thank you for sharing your details! Our team will review your requirements "
+                "and get back to you shortly. 👋"
+            )
+            session.add_message("assistant", reply)
+            await self._session_store.save(session)
+
+            # Trigger summary and email
+            self._run_background_task(self._process_early_exit(session))
+
+        elif is_yes and not is_no:
             session.stage = ConversationStage.FINAL_INPUT
             # Retroactive scan before checking what's missing
             self._retroactive_extract_from_history(session)
@@ -348,15 +382,17 @@ class Orchestrator:
                 reply = "Please provide your complete requirements in a single message."
             session.add_message("assistant", reply)
             await self._session_store.save(session)
+
         else:
+            # Explicit "No" or unrecognised response — wrap up gracefully.
             session.stage = ConversationStage.COMPLETED
             reply = "Thank you for chatting with us! Our team will follow up with you shortly. 👋"
             session.add_message("assistant", reply)
             await self._session_store.save(session)
-            
+
             # Auto-trigger early exit process to send summary and email
             self._run_background_task(self._process_early_exit(session))
-            
+
         return ChatResponse(
             reply=reply,
             stage=session.stage,

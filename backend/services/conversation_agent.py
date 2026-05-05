@@ -161,6 +161,9 @@ RELEVANT_KEYWORDS = [
     "portfolio", "consultation", "team", "experience", "clients",
     "support", "maintenance", "integration", "payment",
     "frontend", "backend", "fullstack", "full-stack",
+    # Contact / reach intent keywords
+    "contact", "reach", "touch", "email", "phone", "address", "office",
+    "connect", "get in touch", "talk to", "speak", "personally",
 ]
 
 # Default redirect for irrelevant questions
@@ -299,8 +302,24 @@ class ConversationAgent:
         try:
             # Hardcode budget response to guarantee compliance with business rules
             is_budget_question = bool(re.search(r"\b(budget|cost|price|pricing|how much|amount)\b", user_message, re.IGNORECASE))
+
+            # Hardcode contact/reach response — answer the user's question directly
+            # instead of falling back to the generic "I don't have details" message.
+            is_contact_question = bool(re.search(
+                r"\b(how to reach|how (can|do) (i|we) (reach|contact|get in touch)|contact (us|you)|reach (you|us)|get in touch|your (email|phone|address|number)|contact (details|info|information))\b",
+                user_message,
+                re.IGNORECASE,
+            ))
+
             if is_budget_question:
                 answer = "Our team will reach out and discuss about the budget with you."
+            elif is_contact_question:
+                answer = (
+                    "You can reach our team through the ColorWhistle contact page at "
+                    "https://colorwhistle.com/contact/ or email us directly at "
+                    "info@colorwhistle.com. We'd love to hear from you!"
+                )
+                logger.info("Contact question intercepted — returning company contact details")
             else:
                 llm_response = await self._llm.generate(
                     messages=messages,
