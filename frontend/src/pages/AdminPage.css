@@ -1,0 +1,293 @@
+.admin-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  background-color: #f3f4f6;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  padding: 20px;
+}
+
+.admin-card {
+  background: white;
+  padding: 2.5rem;
+  border-radius: 16px;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+  width: 100%;
+  max-width: 550px;
+}
+
+.admin-header {
+  text-align: center;
+  margin-bottom: 2rem;
+}
+
+.admin-header h2 {
+  margin: 0 0 0.5rem 0;
+  color: #111827;
+  font-size: 1.5rem;
+  font-weight: 600;
+}
+
+.admin-header p {
+  margin: 0;
+  color: #6b7280;
+  font-size: 0.95rem;
+}
+
+.admin-form .form-group {
+  margin-bottom: 1.5rem;
+}
+
+.admin-form label {
+  display: block;
+  font-weight: 500;
+  margin-bottom: 0.5rem;
+  color: #374151;
+  font-size: 0.95rem;
+}
+
+.admin-form input[type="text"] {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  font-size: 1rem;
+  box-sizing: border-box;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  color: #111827;
+}
+
+.admin-form input[type="text"]:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.admin-form input[type="text"]:disabled {
+  background-color: #f3f4f6;
+  color: #9ca3af;
+}
+
+/* Drag and Drop Zone */
+.drop-zone {
+  border: 2px dashed #d1d5db;
+  border-radius: 8px;
+  padding: 2.5rem 1.5rem;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  background-color: #f9fafb;
+}
+
+.drop-zone:hover {
+  border-color: #3b82f6;
+  background-color: #eff6ff;
+}
+
+.drop-zone.dragging {
+  border-color: #3b82f6;
+  background-color: #eff6ff;
+  border-style: solid;
+}
+
+.drop-zone-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  pointer-events: none;
+}
+
+.upload-icon {
+  width: 32px;
+  height: 32px;
+  color: #9ca3af;
+  margin-bottom: 0.5rem;
+}
+
+.drop-zone:hover .upload-icon,
+.drop-zone.dragging .upload-icon {
+  color: #3b82f6;
+}
+
+.drop-zone-content p {
+  margin: 0;
+  color: #4b5563;
+  font-size: 0.95rem;
+}
+
+.drop-zone-content p span {
+  color: #3b82f6;
+  font-weight: 500;
+}
+
+.drop-zone-content small {
+  color: #6b7280;
+  font-size: 0.8rem;
+}
+
+/* File Preview List */
+.file-preview-list {
+  margin-bottom: 1.5rem;
+}
+
+.file-preview-list h4 {
+  margin: 0 0 0.75rem 0;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #374151;
+}
+
+.file-preview-list ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.file-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  background-color: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  transition: border-color 0.2s;
+}
+
+.file-item:hover {
+  border-color: #d1d5db;
+}
+
+.file-info {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  overflow: hidden;
+}
+
+.pdf-icon {
+  width: 20px;
+  height: 20px;
+  color: #ef4444; /* PDF Red */
+  flex-shrink: 0;
+}
+
+.file-name {
+  font-size: 0.9rem;
+  color: #111827;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 200px;
+}
+
+.file-size {
+  font-size: 0.8rem;
+  color: #6b7280;
+}
+
+.remove-btn {
+  background: none;
+  border: none;
+  color: #9ca3af;
+  font-size: 1.25rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0.25rem;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.2s, background-color 0.2s;
+}
+
+.remove-btn:hover:not(:disabled) {
+  color: #ef4444;
+  background-color: #fee2e2;
+}
+
+/* Submit Button */
+.submit-btn {
+  width: 100%;
+  padding: 0.875rem;
+  background-color: #111827;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  transition: background-color 0.2s;
+}
+
+.submit-btn:hover:not(:disabled) {
+  background-color: #374151;
+}
+
+.submit-btn:disabled {
+  background-color: #d1d5db;
+  cursor: not-allowed;
+  color: #9ca3af;
+}
+
+/* Loading Spinner */
+.loading-spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Message Box */
+.message-box {
+  margin-top: 1.5rem;
+  padding: 1rem;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  line-height: 1.4;
+}
+
+.message-box.success {
+  background-color: #ecfdf5;
+  color: #065f46;
+  border: 1px solid #a7f3d0;
+}
+
+.message-box.error {
+  background-color: #fef2f2;
+  color: #991b1b;
+  border: 1px solid #fecaca;
+}
+
+.back-link {
+  margin-top: 2rem;
+  text-align: center;
+}
+
+.back-link a {
+  color: #6b7280;
+  text-decoration: none;
+  font-size: 0.9rem;
+  font-weight: 500;
+  transition: color 0.2s;
+}
+
+.back-link a:hover {
+  color: #111827;
+}

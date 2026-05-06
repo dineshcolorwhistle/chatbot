@@ -15,7 +15,7 @@ Design:
 import logging
 import os
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, UploadFile, File, Form
 from pydantic import BaseModel, Field
 
 from config import pinecone_config
@@ -179,6 +179,69 @@ async def ingest_documents(request: Request, body: IngestRequest | None = None) 
             status_code=500,
             detail=f"Ingestion failed: {str(e)}",
         )
+
+
+@router.post("/upload")
+async def upload_and_ingest(
+    request: Request,
+    namespace: str = Form(..., description="Pinecone namespace to ingest into."),
+    files: list[UploadFile] = File(..., description="PDF files to upload and ingest.")
+):
+    """Upload PDF files to a namespace and automatically run ingestion."""
+    knowledge_base = getattr(request.app.state, "knowledge_base", None)
+
+    if not knowledge_base:
+        raise HTTPException(
+            status_code=503,
+            detail="Knowledge base is not initialized. Check Pinecone configuration.",
+        )
+
+    # Validate files
+    for file in files:
+        if not file.filename.lower().endswith(".pdf"):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid file type for '{file.filename}'. Only PDFs are allowed."
+            )
+
+    try:
+        # 1. Create the directory for the namespace
+        backend_root = os.path.dirname(os.path.dirname(__file__))
+        namespace_dir = os.path.join(backend_root, "documents", namespace)
+        os.makedirs(namespace_dir, exist_ok=True)
+
+        # 2. Save the uploaded files
+        saved_files = []
+        for file in files:
+            file_path = os.path.join(namespace_dir, file.filename)
+            content = await file.read()
+            with open(file_path, "wb") as f:
+                f.write(content)
+            saved_files.append(file.filename)
+
+        logger.info(f"Saved {len(saved_files)} files to {namespace_dir}")
+
+        # 3. Trigger Ingestion
+        from services.knowledge_base import KnowledgeBase
+        scoped_kb = KnowledgeBase(namespace=namespace)
+        scoped_kb._pc = knowledge_base._pc
+        scoped_kb._index = knowledge_base._index
+
+        stats = await scoped_kb.ingest_documents(namespace_dir)
+
+        return {
+            "message": f"Successfully uploaded {len(saved_files)} files and completed ingestion into namespace '{namespace}'.",
+            "saved_files": saved_files,
+            "stats": stats
+        }
+
+    except Exception as e:
+        logger.error("Upload and ingest failed: %s", e, exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Upload and ingest failed: {str(e)}",
+        )
+
 
 
 @router.get("/kb-stats", response_model=KBStatsResponse)

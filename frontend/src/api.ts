@@ -294,3 +294,29 @@ export function generateSessionId(): string {
   const random = Math.random().toString(36).substring(2, 8);
   return `user-${timestamp}-${random}`;
 }
+
+/**
+ * Upload PDF documents for a specific namespace.
+ */
+export async function uploadDocuments(
+  namespace: string,
+  files: FileList | File[]
+): Promise<{ message: string; saved_files: string[]; stats: any }> {
+  const formData = new FormData();
+  formData.append("namespace", namespace);
+  for (let i = 0; i < files.length; i++) {
+    formData.append("files", files[i]);
+  }
+
+  const response = await fetch(`${API_BASE_URL}/admin/upload`, {
+    method: "POST",
+    body: formData, // No Content-Type header; fetch sets it with the boundary automatically
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.detail || `Upload failed: ${response.status}`);
+  }
+
+  return response.json();
+}
