@@ -9,7 +9,7 @@ LLM-powered multi-agent chatbot for business lead qualification and requirement 
 | Frontend | React + TypeScript (Vite) |
 | Backend | FastAPI (Python) |
 | LLM | Ollama (local) / Cloud (OpenAI-compatible) |
-| RAG | Pinecone + Ollama Embeddings |
+| RAG | Pinecone (Multi-Tenant Namespaces) + Ollama Embeddings |
 | Sessions | In-memory |
 
 ## Quick Start
@@ -72,6 +72,7 @@ Embed on any website with a single `<script>` tag:
 | `data-logo-url` | ❌ | — | Logo image URL |
 | `data-position` | ❌ | `bottom-right` | `bottom-right` or `bottom-left` |
 | `data-greeting` | ❌ | — | Custom greeting message |
+| `data-namespace`| ❌ | — | Tenant namespace for RAG knowledge |
 
 Test locally: open http://localhost:5173/test-widget.html
 
@@ -147,7 +148,7 @@ The complete request lifecycle when a **user sends a message**:
 │  1. FRONTEND (React + TypeScript)                                           │
 │     ChatWindow.tsx → api.ts → POST /api/chat                               │
 │     • User types message in chat UI                                         │
-│     • api.ts sends { session_id, message } to backend                       │
+│     • api.ts sends { session_id, message, namespace } to backend            │
 │     • Shows loading state while waiting for response                        │
 └──────────────────────┬───────────────────────────────────────────────────────┘
                        │
@@ -167,6 +168,7 @@ The complete request lifecycle when a **user sends a message**:
 │     Code-driven, deterministic logic (NOT LLM-powered)                      │
 │                                                                              │
 │     Step 3a: Load or create session from MemoryStore                        │
+│              └── Bind namespace to session (first message)                  │
 │              └── If new session → send welcome + process first message      │
 │                                                                              │
 │     Step 3b: Route based on current stage:                                  │
@@ -213,6 +215,7 @@ The complete request lifecycle when a **user sends a message**:
 │              ▼                       │             │
 │     Step 4b: RAG Context Retrieval   │             │
 │     • Query KnowledgeBase (Pinecone) │             │
+│     • Scoped to tenant namespace     │             │
 │     • Embed user message via Ollama  │             │
 │     • Semantic search for relevant   │             │
 │       company knowledge chunks       │             │
