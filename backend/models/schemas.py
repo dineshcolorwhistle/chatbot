@@ -227,6 +227,7 @@ class Session(BaseModel):
 
     session_id: str
     stage: ConversationStage = ConversationStage.WELCOME
+    namespace: str | None = None
     collected_data: CollectedData = Field(default_factory=CollectedData)
     conversation_history: list[ConversationMessage] = Field(default_factory=list)
     summary: str | None = None
@@ -283,6 +284,12 @@ class ChatRequest(BaseModel):
         max_length=5000,
         description="User message text",
         examples=["Hello, I need help with a project"],
+    )
+    namespace: str | None = Field(
+        None,
+        max_length=100,
+        description="Pinecone namespace for tenant-scoped KB queries",
+        examples=["colorwhistle", "client-abc"],
     )
 
 

@@ -35,7 +35,8 @@ from services.conversation_agent import ConversationAgent
 from services.summarization_agent import SummarizationAgent
 from services.email_agent import EmailAgent
 from services.session_store import BaseSessionStore
-from config import app_config
+from services.knowledge_base_factory import KnowledgeBaseFactory
+from config import app_config, pinecone_config
 
 logger = logging.getLogger(__name__)
 
@@ -78,7 +79,7 @@ class Orchestrator:
         self,
         llm_provider: LLMProvider,
         session_store: BaseSessionStore,
-        knowledge_base=None,
+        kb_factory: KnowledgeBaseFactory | None = None,
     ) -> None:
         """Initialize the Orchestrator with all agents.
 
@@ -89,16 +90,20 @@ class Orchestrator:
         Args:
             llm_provider: Shared LLM provider for all agents.
             session_store: Session persistence backend.
-            knowledge_base: Optional KnowledgeBase for RAG context.
+            kb_factory: Optional KnowledgeBaseFactory for namespace-scoped RAG.
         """
-        self._conversation_agent = ConversationAgent(llm_provider, knowledge_base=knowledge_base)
+        self._llm_provider = llm_provider
+        self._kb_factory = kb_factory
+        self._conversation_agent = ConversationAgent(
+            llm_provider,
+            knowledge_base=kb_factory.default if kb_factory else None,
+        )
         self._summarization_agent = SummarizationAgent(llm_provider)
         self._email_agent = EmailAgent(
             llm_provider, 
             admin_emails=app_config.admin_emails
         )
         self._session_store = session_store
-        self._knowledge_base = knowledge_base
         self._bg_tasks = set()
 
         logger.info("Orchestrator initialized with all agents")
@@ -109,22 +114,26 @@ class Orchestrator:
         task.add_done_callback(self._bg_tasks.discard)
 
     async def process_message(
-        self, session_id: str, message: str
+        self, session_id: str, message: str, namespace: str | None = None
     ) -> ChatResponse:
         """Process a user message through the appropriate handler.
 
         This is the main entry point called by API routes.
         It handles the complete lifecycle:
           1. Load or create session
-          2. Route to the correct handler
-          3. Apply extracted data
-          4. Track message limits
-          5. Save session
-          6. Return response
+          2. Resolve namespace (first message only — binds to session)
+          3. Get the scoped conversation agent
+          4. Route to the correct stage handler
+          5. Apply extracted data
+          6. Track message limits
+          7. Save session
+          8. Return response
 
         Args:
             session_id: The user's session identifier.
             message: The user's message text.
+            namespace: Optional Pinecone namespace for tenant-scoped queries.
+                       Only used on the first message to bind to the session.
 
         Returns:
             ChatResponse with the assistant's reply, current stage,
@@ -133,27 +142,40 @@ class Orchestrator:
         # 1. Load or create session
         session, is_new = await self._session_store.get_or_create(session_id)
 
+        # 2. Resolve namespace (first message only — binds to session)
+        if is_new or not session.namespace:
+            session.namespace = namespace or pinecone_config.namespace
+            logger.info(
+                "Namespace bound to session '%s': '%s'",
+                session_id,
+                session.namespace,
+            )
+
         logger.info(
-            "Processing message — session: %s, stage: %s, new: %s",
+            "Processing message — session: %s, stage: %s, namespace: %s, new: %s",
             session_id,
             session.stage.value,
+            session.namespace,
             is_new,
         )
 
-        # 2. Route based on current stage
+        # 3. Get the conversation agent scoped to this session's namespace
+        conv_agent = self._get_scoped_agent(session.namespace)
+
+        # 4. Route based on current stage
         stage = session.stage
 
         if is_new or stage == ConversationStage.WELCOME:
-            return await self._handle_welcome(session, message)
+            return await self._handle_welcome(session, message, conv_agent)
 
         elif stage == ConversationStage.CONVERSATION:
-            return await self._handle_conversation(session, message)
+            return await self._handle_conversation(session, message, conv_agent)
 
         elif stage == ConversationStage.LIMIT_WARNING:
             return await self._handle_limit_warning(session, message)
 
         elif stage == ConversationStage.FINAL_INPUT:
-            return await self._handle_final_input(session, message)
+            return await self._handle_final_input(session, message, conv_agent)
 
         elif stage == ConversationStage.COMPLETED:
             return await self._handle_completed(session)
@@ -166,12 +188,35 @@ class Orchestrator:
                 data_collected=session.collected_data.to_summary_dict(),
             )
 
+    def _get_scoped_agent(self, namespace: str | None) -> ConversationAgent:
+        """Get a ConversationAgent scoped to the session's namespace.
+
+        If the namespace matches the default config namespace, returns
+        the pre-built default agent (no extra allocation). Otherwise
+        creates a new agent with a namespace-scoped KnowledgeBase from
+        the factory.
+
+        Args:
+            namespace: The Pinecone namespace for this session.
+
+        Returns:
+            A ConversationAgent with the appropriately scoped KnowledgeBase.
+        """
+        if not namespace or not self._kb_factory:
+            return self._conversation_agent
+
+        if namespace == pinecone_config.namespace:
+            return self._conversation_agent
+
+        scoped_kb = self._kb_factory.get(namespace)
+        return ConversationAgent(self._llm_provider, knowledge_base=scoped_kb)
+
     # ============================================
     # Stage Handlers
     # ============================================
 
     async def _handle_welcome(
-        self, session: Session, message: str
+        self, session: Session, message: str, conv_agent: ConversationAgent
     ) -> ChatResponse:
         """Handle the welcome stage.
 
@@ -182,6 +227,7 @@ class Orchestrator:
         Args:
             session: The current session.
             message: The user's message.
+            conv_agent: The namespace-scoped conversation agent.
 
         Returns:
             ChatResponse with welcome or first conversation reply.
@@ -195,7 +241,7 @@ class Orchestrator:
             session.stage = ConversationStage.CONVERSATION
 
             # Process the user's first message through conversation agent
-            result = await self._conversation_agent.process_message(
+            result = await conv_agent.process_message(
                 session, message
             )
 
@@ -213,10 +259,10 @@ class Orchestrator:
 
         # Already welcomed — transition and process
         session.stage = ConversationStage.CONVERSATION
-        return await self._handle_conversation(session, message)
+        return await self._handle_conversation(session, message, conv_agent)
 
     async def _handle_conversation(
-        self, session: Session, message: str
+        self, session: Session, message: str, conv_agent: ConversationAgent
     ) -> ChatResponse:
         """Handle the main conversation flow (single block).
 
@@ -231,6 +277,7 @@ class Orchestrator:
         Args:
             session: The current session.
             message: The user's message.
+            conv_agent: The namespace-scoped conversation agent.
 
         Returns:
             ChatResponse with the agent's reply and updated state.
@@ -242,7 +289,7 @@ class Orchestrator:
         session.add_message("user", message)
 
         # Process through Conversation Agent
-        result = await self._conversation_agent.process_message(
+        result = await conv_agent.process_message(
             session, message
         )
 
@@ -304,7 +351,7 @@ class Orchestrator:
         # Penultimate message — append contact details request
         reply = result.reply
         if current_msg_number == app_config.max_user_messages - 1:
-            contact_request = self._conversation_agent.build_contact_details_request(session)
+            contact_request = conv_agent.build_contact_details_request(session)
             if contact_request:
                 reply = f"{reply}\n\n{contact_request}"
                 logger.info(
@@ -399,12 +446,12 @@ class Orchestrator:
             data_collected=session.collected_data.to_summary_dict()
         )
 
-    async def _handle_final_input(self, session: Session, message: str) -> ChatResponse:
+    async def _handle_final_input(self, session: Session, message: str, conv_agent: ConversationAgent) -> ChatResponse:
         """Handle the single final message from the user."""
         session.add_message("user", message)
         
         # Try to extract data from this final message
-        result = await self._conversation_agent.process_message(session, message)
+        result = await conv_agent.process_message(session, message)
         self._apply_extracted_data(session, result.extracted_data)
         
         session.stage = ConversationStage.COMPLETED

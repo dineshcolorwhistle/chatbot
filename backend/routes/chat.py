@@ -60,6 +60,7 @@ async def chat(request: Request, body: ChatRequest) -> ChatResponse:
         response = await orchestrator.process_message(
             session_id=body.session_id,
             message=body.message,
+            namespace=body.namespace,
         )
 
         logger.info(

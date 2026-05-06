@@ -21,6 +21,8 @@ export interface WidgetConfig {
   companyName: string;
   /** URL to the company logo (absolute or relative). */
   logoUrl?: string;
+  /** Pinecone namespace for tenant-scoped KB queries. */
+  namespace?: string;
   /** Widget position on screen. */
   position?: "bottom-right" | "bottom-left";
   /** Initial greeting message override. */

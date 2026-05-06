@@ -20,6 +20,12 @@
 let API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000/api";
 
 /**
+ * Pinecone namespace for tenant-scoped KB queries.
+ * Set via VITE_NAMESPACE env var (standalone) or setNamespace() (widget mode).
+ */
+let NAMESPACE: string | undefined = import.meta.env.VITE_NAMESPACE || undefined;
+
+/**
  * Override the API base URL at runtime.
  * Called by the widget entry point during initialization.
  *
@@ -29,6 +35,16 @@ let API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000/a
 export function setApiBaseUrl(baseUrl: string): void {
   const cleaned = baseUrl.replace(/\/+$/, ""); // strip trailing slashes
   API_BASE_URL = cleaned.endsWith("/api") ? cleaned : `${cleaned}/api`;
+}
+
+/**
+ * Override the namespace at runtime.
+ * Called by the widget entry point during initialization.
+ *
+ * @param ns The Pinecone namespace for this widget deployment.
+ */
+export function setNamespace(ns: string): void {
+  NAMESPACE = ns;
 }
 
 /** Get the current API base URL (useful for debugging). */
@@ -168,7 +184,8 @@ async function safeFetch(
  */
 export async function sendMessage(
   sessionId: string,
-  message: string
+  message: string,
+  namespace?: string
 ): Promise<ChatResponse> {
   const response = await safeFetch(`${API_BASE_URL}/chat`, {
     method: "POST",
@@ -176,6 +193,7 @@ export async function sendMessage(
     body: JSON.stringify({
       session_id: sessionId,
       message: message,
+      namespace: namespace || NAMESPACE || undefined,
     }),
   });
 

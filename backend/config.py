@@ -64,6 +64,7 @@ class PineconeConfig:
     index_name: str = "colorwhistle-kb"
     cloud: str = "aws"
     region: str = "us-east-1"
+    namespace: str = "default"
 
 
 @dataclass(frozen=True)
@@ -130,6 +131,7 @@ def _load_pinecone_config() -> PineconeConfig:
         index_name=os.getenv("PINECONE_INDEX_NAME", "colorwhistle-kb"),
         cloud=os.getenv("PINECONE_CLOUD", "aws"),
         region=os.getenv("PINECONE_REGION", "us-east-1"),
+        namespace=os.getenv("PINECONE_NAMESPACE", "default"),
     )
 
 

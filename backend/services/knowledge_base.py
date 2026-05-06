@@ -100,28 +100,33 @@ class KnowledgeBase:
         self,
         chunk_size: int = 800,
         chunk_overlap: int = 200,
+        namespace: str | None = None,
     ) -> None:
         """Initialize the Knowledge Base service.
 
         Args:
             chunk_size: Target number of characters per text chunk.
             chunk_overlap: Number of overlapping characters between chunks.
+            namespace: Pinecone namespace for tenant-scoped operations.
+                       Defaults to the value from config.
         """
         self._embedding_model = embedding_config.model
         self._embedding_url = f"{embedding_config.ollama_base_url}/api/embed"
         self._embedding_dimension = embedding_config.dimension
         self._chunk_size = chunk_size
         self._chunk_overlap = chunk_overlap
+        self._namespace = namespace or pinecone_config.namespace
 
         # Initialize Pinecone
         self._pc = Pinecone(api_key=pinecone_config.api_key)
         self._index = None
 
         logger.info(
-            "KnowledgeBase initialized (model: %s, chunk_size: %d, overlap: %d)",
+            "KnowledgeBase initialized (model: %s, chunk_size: %d, overlap: %d, namespace: %s)",
             self._embedding_model,
             self._chunk_size,
             self._chunk_overlap,
+            self._namespace,
         )
 
     async def initialize(self) -> bool:
@@ -238,7 +243,7 @@ class KnowledgeBase:
                     vectors = await self._embed_and_prepare_vectors(batch)
 
                     if vectors:
-                        self._index.upsert(vectors=vectors)
+                        self._index.upsert(vectors=vectors, namespace=self._namespace)
                         stats["total_vectors_upserted"] += len(vectors)
                         logger.info(
                             "Upserted %d vectors (batch %d/%d) for %s",
@@ -298,11 +303,12 @@ class KnowledgeBase:
                 logger.warning("Failed to generate query embedding")
                 return []
 
-            # Search Pinecone
+            # Search Pinecone (namespace-scoped)
             results = self._index.query(
                 vector=query_embedding,
                 top_k=top_k,
                 include_metadata=True,
+                namespace=self._namespace,
             )
 
             # Filter and format results
@@ -604,8 +610,11 @@ class KnowledgeBase:
             logger.error("Failed to get index stats: %s", e)
             return {"error": str(e)}
 
-    async def clear_index(self) -> bool:
-        """Delete all vectors from the Pinecone index.
+    async def clear_namespace(self, namespace: str | None = None) -> bool:
+        """Delete all vectors from a specific namespace in the Pinecone index.
+
+        Args:
+            namespace: The namespace to clear. Defaults to the instance namespace.
 
         Returns:
             True if successful, False otherwise.
@@ -613,10 +622,16 @@ class KnowledgeBase:
         if not self._index:
             return False
 
+        target_ns = namespace or self._namespace
+
         try:
-            self._index.delete(delete_all=True)
-            logger.info("All vectors deleted from index '%s'", pinecone_config.index_name)
+            self._index.delete(delete_all=True, namespace=target_ns)
+            logger.info(
+                "All vectors deleted from namespace '%s' in index '%s'",
+                target_ns,
+                pinecone_config.index_name,
+            )
             return True
         except Exception as e:
-            logger.error("Failed to clear index: %s", e)
+            logger.error("Failed to clear namespace '%s': %s", target_ns, e)
             return False

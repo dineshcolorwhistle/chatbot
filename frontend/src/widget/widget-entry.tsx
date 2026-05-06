@@ -21,6 +21,7 @@
 import { createRoot } from "react-dom/client";
 import { StrictMode } from "react";
 import WidgetLauncher, { type WidgetConfig } from "./WidgetLauncher";
+import { setNamespace } from "../api";
 
 // Import widget styles (will be inlined into the IIFE bundle)
 import "./widget.css";
@@ -42,6 +43,8 @@ function getWidgetConfig(): WidgetConfig {
     scriptTag?.getAttribute("data-company-name") || "ColorWhistle";
   const logoUrl =
     scriptTag?.getAttribute("data-logo-url") || undefined;
+  const namespace =
+    scriptTag?.getAttribute("data-namespace") || undefined;
   const position =
     (scriptTag?.getAttribute("data-position") as "bottom-right" | "bottom-left") ||
     "bottom-right";
@@ -52,6 +55,7 @@ function getWidgetConfig(): WidgetConfig {
     apiBaseUrl,
     companyName,
     logoUrl,
+    namespace,
     position,
     greeting,
   };
@@ -92,6 +96,11 @@ function initWidget(): void {
   `;
   document.head.appendChild(style);
 
+  // Set namespace for API calls if provided
+  if (config.namespace) {
+    setNamespace(config.namespace);
+  }
+
   // Render the widget
   const root = createRoot(container);
   root.render(
@@ -101,7 +110,7 @@ function initWidget(): void {
   );
 
   console.info(
-    `[ColorWhistle Chat] Widget initialized — API: ${config.apiBaseUrl}`
+    `[ColorWhistle Chat] Widget initialized — API: ${config.apiBaseUrl}, Namespace: ${config.namespace || 'default'}`
   );
 }
 

@@ -20,7 +20,7 @@ from config import app_config, pinecone_config
 from providers.factory import create_llm_provider
 from services.orchestrator import Orchestrator
 from services.mongo_store import session_store
-from services.knowledge_base import KnowledgeBase
+from services.knowledge_base_factory import KnowledgeBaseFactory
 from routes.chat import router as chat_router
 from routes.admin import router as admin_router
 
@@ -41,7 +41,7 @@ async def lifespan(app: FastAPI):
     Startup:
       - Initialize the LLM provider
       - Run health check to verify connectivity
-      - Initialize the Knowledge Base (Pinecone + embeddings)
+      - Initialize the KnowledgeBase Factory (Pinecone + namespace support)
       - Initialize the Orchestrator with all agents
     Shutdown:
       - Cleanup resources
@@ -64,34 +64,41 @@ async def lifespan(app: FastAPI):
             "The application will start but LLM calls may fail."
         )
 
-    # Initialize Knowledge Base (RAG pipeline)
-    knowledge_base = None
+    # Initialize Knowledge Base Factory (namespace-scoped RAG pipeline)
+    kb_factory = None
     if pinecone_config.api_key:
         try:
-            knowledge_base = KnowledgeBase()
-            kb_ready = await knowledge_base.initialize()
+            kb_factory = KnowledgeBaseFactory()
+            kb_ready = await kb_factory.initialize()
             if kb_ready:
-                logger.info("Knowledge Base (Pinecone) is ready")
-                app.state.knowledge_base = knowledge_base
+                logger.info(
+                    "Knowledge Base Factory is ready (default namespace: '%s')",
+                    pinecone_config.namespace,
+                )
+                # Expose default KB for admin routes and health checks
+                app.state.knowledge_base = kb_factory.default
             else:
                 logger.warning(
                     "Knowledge Base initialization failed. "
                     "RAG features will be unavailable."
                 )
-                knowledge_base = None
+                kb_factory = None
+                app.state.knowledge_base = None
         except Exception as e:
             logger.warning("Knowledge Base setup error: %s. RAG features disabled.", e)
-            knowledge_base = None
+            kb_factory = None
+            app.state.knowledge_base = None
     else:
         logger.info("No Pinecone API key configured — RAG features disabled")
+        app.state.knowledge_base = None
 
-    app.state.knowledge_base = knowledge_base
+    app.state.kb_factory = kb_factory
 
     # Initialize Orchestrator (coordinates all agents)
     orchestrator = Orchestrator(
         llm_provider=llm_provider,
         session_store=session_store,
-        knowledge_base=knowledge_base,
+        kb_factory=kb_factory,
     )
     app.state.orchestrator = orchestrator
     logger.info("Orchestrator initialized with all agents")
