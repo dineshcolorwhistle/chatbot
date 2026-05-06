@@ -53,6 +53,8 @@ interface ChatWindowProps {
    * WidgetLauncher sets this to call handleReset from outside.
    */
   onResetRef?: MutableRefObject<(() => void) | null>;
+  /** Custom greeting message to show when no messages exist. */
+  greeting?: string;
 }
 
 // ============================================
@@ -64,6 +66,7 @@ export default function ChatWindow({
   apiBaseUrl,
   logoUrl: logoUrlProp,
   onResetRef,
+  greeting,
 }: ChatWindowProps) {
   // Resolve logo URL: prop (widget mode) > env variable > fallback
   const resolvedLogoUrl = logoUrlProp || import.meta.env.VITE_LOGO_URL || "/logo.svg";
@@ -282,11 +285,22 @@ export default function ChatWindow({
         {messages.length === 0 && (
           <div className="empty-state">
             <div className="empty-icon">💬</div>
-            <h2>Welcome to ColorWhistle</h2>
+            <h2>Welcome</h2>
             <p>
-              Tell us about your project and we'll help you scope it out.
-              <br />
-              Type a message below to get started!
+              {greeting ? (
+                greeting.split("\\n").map((line, i) => (
+                  <span key={i}>
+                    {line}
+                    <br />
+                  </span>
+                ))
+              ) : (
+                <>
+                  Tell us about your project and we'll help you scope it out.
+                  <br />
+                  Type a message below to get started!
+                </>
+              )}
             </p>
           </div>
         )}

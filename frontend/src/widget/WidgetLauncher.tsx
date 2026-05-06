@@ -86,6 +86,7 @@ export default function WidgetLauncher({ config }: WidgetLauncherProps) {
               apiBaseUrl={config.apiBaseUrl}
               logoUrl={config.logoUrl}
               onResetRef={chatResetRef}
+              greeting={config.greeting}
             />
           </div>
 
