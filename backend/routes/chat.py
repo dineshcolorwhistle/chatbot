@@ -116,6 +116,7 @@ async def get_session(request: Request, session_id: str) -> SessionResponse:
         return SessionResponse(
             session_id=session.session_id,
             stage=session.stage,
+            namespace=session.namespace,
             collected_data=session.collected_data,
             conversation_history=session.conversation_history,
             summary=session.summary,

@@ -335,6 +335,7 @@ class SessionResponse(BaseModel):
 
     session_id: str
     stage: ConversationStage
+    namespace: str | None = None
     collected_data: CollectedData
     conversation_history: list[ConversationMessage]
     summary: str | None

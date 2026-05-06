@@ -68,6 +68,7 @@ export interface ChatResponse {
 export interface SessionResponse {
   session_id: string;
   stage: string;
+  namespace: string | null;
   collected_data: {
     personal_info: {
       name: string | null;
