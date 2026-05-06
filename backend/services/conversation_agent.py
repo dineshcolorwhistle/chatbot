@@ -57,7 +57,7 @@ class ConversationResult:
 # ============================================
 
 def get_persona_prompt(company_name: str) -> str:
-    return f"""You are a friendly, professional project consultant for {company_name}, a software development company.
+    return f"""You are a friendly, professional project consultant for {company_name}.
 
 STRICT RULES:
 - Keep responses to 2-3 sentences maximum.
@@ -70,7 +70,7 @@ STRICT RULES:
 - If the user asks about budget or pricing, respond with: "Our team will reach out and discuss about the budget with you."
 - Try to understand the technical details from the user's input, but do NOT forcefully ask for them.
 - If the user asks a question about {company_name} services, answer it using ONLY the knowledge base context provided below (if any). If no relevant knowledge base context is available, say: "I don't have specific details about that right now, but I can have our team follow up with you on this."
-- If the user asks something completely unrelated to web development or {company_name}, politely steer back to the project consultation.
+- If the user asks something completely unrelated to {company_name} or the project consultation, politely steer back.
 - NEVER make up or guess information about {company_name}'s services, pricing, or capabilities.
 - CRITICAL: Do NOT ask the user for their name, email, phone, company, or location AT ANY POINT. The system handles contact collection separately.
 - If the user voluntarily introduces themselves (e.g. "I'm John"), acknowledge them warmly by name and continue the conversation.
@@ -117,62 +117,33 @@ DATA_PROVISION_PATTERNS = [
 
 
 # ============================================
-# Irrelevant Question Patterns
+# Absolute Off-Topic Guard
+# (only things that are NEVER relevant to any business)
 # ============================================
 
-IRRELEVANT_PATTERNS = [
-    # Time & date
-    r"\b(what|tell).*(time|date|day|month|year)\b",
-    r"\b(current|today).*(time|date)\b",
-    r"\bwhat time\b",
-    r"\bwhat day\b",
+# These patterns catch questions that are never about any tenant's business.
+# e.g. asking the chatbot its age, pure math, weather, sports scores.
+# Everything else reaches the LLM + RAG pipeline.
+ABSOLUTE_OFFTOPIC_PATTERNS = [
+    # Bot-identity questions the agent should redirect, not answer as a human
+    r"\b(are you (an? )?(ai|bot|robot|assistant|machine|computer|chatbot|llm|gpt))\b",
+    r"\b(are you real|are you human|who (made|built|created|trained) you)\b",
+    r"\b(how old are you|what is your (age|name)|where do you live|your favorite)\b",
+    # Pure math / arithmetic with no words
+    r"^\d+\s*[\+\-\*\/\%\^]\s*[\d\s\+\-\*\/\%\^]+$",
+    # Date / time (the bot has no clock)
+    r"\b(what (is the |is |'?s the? )?(current )?(time|date|day|month|year) (now|today|right now))\b",
+    r"^(what time is it|what day is it|what is today)\b",
     # Weather
-    r"\b(weather|temperature|forecast|rain|sunny|cloudy|snow)\b",
-    # Math & calculations
-    r"\b(calculate|compute|solve|math|equation)\b",
-    r"^\d+\s*[\+\-\*\/\%]\s*\d+",     # e.g. "5 + 3"
-    # Sports & entertainment
-    r"\b(score|match|game|cricket|football|soccer|basketball|baseball|tennis|movie|song|music|netflix)\b",
-    # General knowledge / trivia
-    r"\b(capital of|president of|population of|who invented|who discovered|who is the)\b",
-    r"\b(meaning of life|tell me a joke|joke|funny|riddle)\b",
-    # Personal / social
-    r"\b(your name|who are you|are you real|are you human|are you ai|are you a bot)\b",
-    r"\b(how old are you|where do you live|your age|your favorite)\b",
-    # News & politics
-    r"\b(latest news|breaking news|election|politics|stock market|crypto|bitcoin)\b",
-    # Food & recipes
-    r"\b(recipe|cook|food|restaurant|calories)\b",
-    # Health (non-project)
-    r"\b(headache|medicine|doctor|symptom|diet|exercise|workout)\b",
-    # Navigation & travel
-    r"\b(directions to|how to get to|nearest|flight|hotel|travel|vacation)\b",
-    # Random tasks
-    r"\b(translate|write a poem|write a story|sing|draw)\b",
-    r"\b(lottery|horoscope|zodiac|astrology)\b",
+    r"\b(what.*(weather|temperature|forecast) (in|at|for|today|tomorrow|right now))\b",
 ]
 
-# Keywords that indicate a RELEVANT question (about services, web dev, project)
-RELEVANT_KEYWORDS = [
-    "project", "website", "web app", "mobile app",
-    "development", "design", "service", "pricing", "cost", "budget",
-    "timeline", "deadline", "feature", "technology", "tech stack",
-    "react", "python", "api", "database", "hosting", "deploy",
-    "ecommerce", "e-commerce", "cms", "wordpress", "seo",
-    "portfolio", "consultation", "team", "experience", "clients",
-    "support", "maintenance", "integration", "payment",
-    "frontend", "backend", "fullstack", "full-stack",
-    # Contact / reach intent keywords
-    "contact", "reach", "touch", "email", "phone", "address", "office",
-    "connect", "get in touch", "talk to", "speak", "personally",
-]
-
-# Default redirect for irrelevant questions
+# Default redirect for off-topic questions
 def get_default_redirect(company_name: str) -> str:
     return (
-        "I appreciate the question, but that's outside what I can help with! 😊 "
-        f"I'm your project consultant at {company_name}, and I'm here to understand "
-        "your project needs. Let's continue with our consultation!"
+        "I appreciate the question, but that's a bit outside my scope here! 😊 "
+        f"I'm your consultant at {company_name}. Is there anything I can help you "
+        "with related to our services or your project?"
     )
 
 
@@ -524,39 +495,24 @@ class ConversationAgent:
         return False
 
     def _is_irrelevant_question(self, message: str) -> bool:
-        """Detect if a question is irrelevant to the project consultation.
+        """Detect if a question is absolute off-topic (bot identity, pure math, time/weather).
 
-        Catches off-topic questions (time, weather, math, sports, etc.)
-        BEFORE they reach the LLM.
+        IMPORTANT: This is intentionally minimal. We do NOT filter by industry
+        keywords — all domain questions reach the LLM+RAG pipeline which uses the
+        correct Pinecone namespace to answer from the tenant's own knowledge base.
 
         Args:
             message: The user's message text.
 
         Returns:
-            True if the question is off-topic and should be redirected.
+            True only if the question is universally off-topic (not answerable by
+            any business — e.g. "what time is it?", "are you an AI?").
         """
         msg_lower = message.strip().lower()
 
-        # First check: does it contain any relevant keywords or the company name?
-        if self._company_name.lower() in msg_lower:
-            logger.debug("Question contains company name — treating as relevant")
-            return False
-
-        for keyword in RELEVANT_KEYWORDS:
-            if keyword in msg_lower:
-                logger.debug(
-                    "Question contains relevant keyword '%s' — treating as relevant",
-                    keyword,
-                )
-                return False
-
-        # Second check: does it match any irrelevant patterns?
-        for pattern in IRRELEVANT_PATTERNS:
+        for pattern in ABSOLUTE_OFFTOPIC_PATTERNS:
             if re.search(pattern, msg_lower, re.IGNORECASE):
-                logger.debug(
-                    "Question matched irrelevant pattern: %s",
-                    pattern,
-                )
+                logger.debug("Absolute off-topic pattern matched: %s", pattern)
                 return True
 
         return False
@@ -578,7 +534,7 @@ class ConversationAgent:
             A focused question-answering system prompt.
         """
         parts: list[str] = [
-            f"You are a helpful human project consultant for {self._company_name}, a software development company.",
+            f"You are a helpful human project consultant for {self._company_name}.",
             "",
             "YOUR TASK: Answer the user's question in 2-3 sentences FIRST.",
             "Use the company information below if available.",
