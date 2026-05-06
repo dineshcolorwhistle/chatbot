@@ -53,24 +53,25 @@ class ConversationResult:
 
 
 # ============================================
-# System Prompt — Single unified prompt
+# System Prompt Builders — Dynamic based on company
 # ============================================
 
-PERSONA_PROMPT = """You are a friendly, professional project consultant for ColorWhistle, a software development company.
+def get_persona_prompt(company_name: str) -> str:
+    return f"""You are a friendly, professional project consultant for {company_name}, a software development company.
 
 STRICT RULES:
 - Keep responses to 2-3 sentences maximum.
 - Sound natural and human-like. Act completely like a human.
-- NEVER greet the user with "Welcome to ColorWhistle!" or any welcome message. The system has already greeted them. Jump straight into addressing their message.
-- You may refer to "ColorWhistle" naturally when discussing services or capabilities, but do NOT use it as a greeting.
+- NEVER greet the user with "Welcome to {company_name}!" or any welcome message. The system has already greeted them. Jump straight into addressing their message.
+- You may refer to "{company_name}" naturally when discussing services or capabilities, but do NOT use it as a greeting.
 - Never mention being an AI or LLM.
 - ALWAYS answer the user's question or respond to their message FIRST. This is the #1 priority.
 - NEVER suggest any price or costing.
 - If the user asks about budget or pricing, respond with: "Our team will reach out and discuss about the budget with you."
 - Try to understand the technical details from the user's input, but do NOT forcefully ask for them.
-- If the user asks a question about ColorWhistle services, answer it using ONLY the knowledge base context provided below (if any). If no relevant knowledge base context is available, say: "I don't have specific details about that right now, but I can have our team follow up with you on this."
-- If the user asks something completely unrelated to web development or ColorWhistle, politely steer back to the project consultation.
-- NEVER make up or guess information about ColorWhistle's services, pricing, or capabilities.
+- If the user asks a question about {company_name} services, answer it using ONLY the knowledge base context provided below (if any). If no relevant knowledge base context is available, say: "I don't have specific details about that right now, but I can have our team follow up with you on this."
+- If the user asks something completely unrelated to web development or {company_name}, politely steer back to the project consultation.
+- NEVER make up or guess information about {company_name}'s services, pricing, or capabilities.
 - CRITICAL: Do NOT ask the user for their name, email, phone, company, or location AT ANY POINT. The system handles contact collection separately.
 - If the user voluntarily introduces themselves (e.g. "I'm John"), acknowledge them warmly by name and continue the conversation.
 - ONLY generate the consultant's immediate reply. NEVER simulate, predict, or write out the user's next response. Stop generating immediately after your own reply."""
@@ -153,7 +154,7 @@ IRRELEVANT_PATTERNS = [
 
 # Keywords that indicate a RELEVANT question (about services, web dev, project)
 RELEVANT_KEYWORDS = [
-    "colorwhistle", "project", "website", "web app", "mobile app",
+    "project", "website", "web app", "mobile app",
     "development", "design", "service", "pricing", "cost", "budget",
     "timeline", "deadline", "feature", "technology", "tech stack",
     "react", "python", "api", "database", "hosting", "deploy",
@@ -167,11 +168,12 @@ RELEVANT_KEYWORDS = [
 ]
 
 # Default redirect for irrelevant questions
-DEFAULT_REDIRECT = (
-    "I appreciate the question, but that's outside what I can help with! 😊 "
-    "I'm your project consultant at ColorWhistle, and I'm here to understand "
-    "your project needs. Let's continue with our consultation!"
-)
+def get_default_redirect(company_name: str) -> str:
+    return (
+        "I appreciate the question, but that's outside what I can help with! 😊 "
+        f"I'm your project consultant at {company_name}, and I'm here to understand "
+        "your project needs. Let's continue with our consultation!"
+    )
 
 
 class ConversationAgent:
@@ -188,17 +190,31 @@ class ConversationAgent:
     Attributes:
         _llm: The LLM provider instance used for generation.
         _knowledge_base: Optional knowledge base for RAG context retrieval.
+        _namespace: Optional namespace for the current session.
+        _company_name: The company name for prompts.
     """
 
-    def __init__(self, llm_provider: LLMProvider, knowledge_base=None) -> None:
+    def __init__(self, llm_provider: LLMProvider, knowledge_base=None, namespace: str | None = None) -> None:
         """Initialize the Conversation Agent.
 
         Args:
             llm_provider: The LLM provider to use for generating responses.
             knowledge_base: Optional KnowledgeBase instance for RAG retrieval.
+            namespace: Optional namespace for the current session.
         """
         self._llm = llm_provider
         self._knowledge_base = knowledge_base
+        self._namespace = namespace
+        self._company_name = self._compute_company_name(namespace)
+
+    def _compute_company_name(self, namespace: str | None) -> str:
+        if not namespace:
+            return "ColorWhistle"
+        
+        # Format the namespace properly (e.g. colorwhistle -> ColorWhistle, eduwhistle -> EduWhistle)
+        if "whistle" in namespace.lower():
+            return namespace.lower().replace("whistle", "Whistle").capitalize()
+        return namespace.title()
 
     def _clean_history_content(self, content: str) -> str:
         """Remove appended automated requests from history so the LLM doesn't learn and parrot them."""
@@ -238,7 +254,7 @@ class ConversationAgent:
             if self._is_irrelevant_question(user_message):
                 logger.info("Irrelevant question detected — returning redirect")
                 return ConversationResult(
-                    reply=DEFAULT_REDIRECT,
+                    reply=get_default_redirect(self._company_name),
                     extracted_data={},
                 )
 
@@ -314,10 +330,12 @@ class ConversationAgent:
             if is_budget_question:
                 answer = "Our team will reach out and discuss about the budget with you."
             elif is_contact_question:
+                domain = f"{self._namespace}.com" if self._namespace and self._namespace != "default" else "colorwhistle.com"
+                email = f"info@{domain}"
                 answer = (
-                    "You can reach our team through the ColorWhistle contact page at "
-                    "https://colorwhistle.com/contact/ or email us directly at "
-                    "info@colorwhistle.com. We'd love to hear from you!"
+                    f"You can reach our team through the {self._company_name} contact page at "
+                    f"https://{domain}/contact/ or email us directly at "
+                    f"{email}. We'd love to hear from you!"
                 )
                 logger.info("Contact question intercepted — returning company contact details")
             else:
@@ -519,7 +537,11 @@ class ConversationAgent:
         """
         msg_lower = message.strip().lower()
 
-        # First check: does it contain any relevant keywords?
+        # First check: does it contain any relevant keywords or the company name?
+        if self._company_name.lower() in msg_lower:
+            logger.debug("Question contains company name — treating as relevant")
+            return False
+
         for keyword in RELEVANT_KEYWORDS:
             if keyword in msg_lower:
                 logger.debug(
@@ -556,7 +578,7 @@ class ConversationAgent:
             A focused question-answering system prompt.
         """
         parts: list[str] = [
-            "You are a helpful human project consultant for ColorWhistle, a software development company.",
+            f"You are a helpful human project consultant for {self._company_name}, a software development company.",
             "",
             "YOUR TASK: Answer the user's question in 2-3 sentences FIRST.",
             "Use the company information below if available.",
@@ -564,15 +586,15 @@ class ConversationAgent:
             "",
             "RULES:",
             "- Answer the user's question directly. This is the #1 priority.",
-            "- NEVER greet the user with 'Welcome to ColorWhistle!' or any welcome/hello message. The system has already greeted them. Jump straight into answering.",
+            f"- NEVER greet the user with 'Welcome to {self._company_name}!' or any welcome/hello message. The system has already greeted them. Jump straight into answering.",
             "- CRITICAL: Do NOT ask the user for their name, email, phone, company, or location. The system handles this separately.",
             "- If the user has already shared their name (shown in ALREADY COLLECTED below), address them by name naturally.",
             "- Do NOT output JSON. Just write a plain text answer.",
             "- Keep it short: 2-3 sentences maximum.",
             "- Do NOT say you are an AI. Act completely like a human.",
-            "- You may refer to 'ColorWhistle' naturally when discussing services, but do NOT use it as a greeting.",
+            f"- You may refer to '{self._company_name}' naturally when discussing services, but do NOT use it as a greeting.",
             "- CRITICAL: If the user asks about budget or pricing, respond EXACTLY with: 'Our team will reach out and discuss about the budget with you.'",
-            "- NEVER make up information about ColorWhistle. Only use the company info below.",
+            f"- NEVER make up information about {self._company_name}. Only use the company info below.",
             "- ONLY generate the consultant's immediate reply. NEVER simulate, predict, or write out the user's next response. Stop generating immediately after your own reply.",
         ]
 
@@ -603,7 +625,7 @@ class ConversationAgent:
         Returns:
             A complete system prompt string.
         """
-        parts: list[str] = [PERSONA_PROMPT]
+        parts: list[str] = [get_persona_prompt(self._company_name)]
 
         # Add RAG knowledge base context (if available)
         if rag_context:
@@ -786,9 +808,12 @@ class ConversationAgent:
         """
         # Patterns that match greeting lines the LLM might produce
         greeting_patterns = [
+            rf"^(?:👋\s*)?(?:Hello!?\s*)?Welcome to {self._company_name}[.!]*\s*",
+            rf"^(?:👋\s*)?Hello from {self._company_name}[.!]*\s*",
+            r"^(?:👋\s*)?Welcome! I'm your project consultant[^.]*\.\s*",
+            rf"^(?:👋\s*)?Hi there! Welcome to {self._company_name}[.!]*\s*",
             r"^(?:👋\s*)?(?:Hello!?\s*)?Welcome to ColorWhistle[.!]*\s*",
             r"^(?:👋\s*)?Hello from ColorWhistle[.!]*\s*",
-            r"^(?:👋\s*)?Welcome! I'm your project consultant[^.]*\.\s*",
             r"^(?:👋\s*)?Hi there! Welcome to ColorWhistle[.!]*\s*",
         ]
 

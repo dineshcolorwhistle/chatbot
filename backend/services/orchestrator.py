@@ -45,11 +45,12 @@ logger = logging.getLogger(__name__)
 # Welcome Message
 # ============================================
 
-WELCOME_MESSAGE = (
-    "👋 Hello! Welcome to ColorWhistle. I'm your project consultant, "
-    "and I'm here to help understand your project requirements.\n\n"
-    "How can I help you today?"
-)
+def get_welcome_message(company_name: str) -> str:
+    return (
+        f"👋 Hello! Welcome to {company_name}. I'm your project consultant, "
+        "and I'm here to help understand your project requirements.\n\n"
+        "How can I help you today?"
+    )
 
 COMPLETED_MESSAGE = (
     "This consultation has been completed. If you'd like to start "
@@ -97,6 +98,7 @@ class Orchestrator:
         self._conversation_agent = ConversationAgent(
             llm_provider,
             knowledge_base=kb_factory.default if kb_factory else None,
+            namespace=pinecone_config.namespace
         )
         self._summarization_agent = SummarizationAgent(llm_provider)
         self._email_agent = EmailAgent(
@@ -209,7 +211,7 @@ class Orchestrator:
             return self._conversation_agent
 
         scoped_kb = self._kb_factory.get(namespace)
-        return ConversationAgent(self._llm_provider, knowledge_base=scoped_kb)
+        return ConversationAgent(self._llm_provider, knowledge_base=scoped_kb, namespace=namespace)
 
     # ============================================
     # Stage Handlers
@@ -233,8 +235,17 @@ class Orchestrator:
             ChatResponse with welcome or first conversation reply.
         """
         if not session.conversation_history:
+            # Determine company name
+            company_name = "ColorWhistle"
+            if session.namespace:
+                if "whistle" in session.namespace.lower():
+                    company_name = session.namespace.lower().replace("whistle", "Whistle").capitalize()
+                else:
+                    company_name = session.namespace.title()
+
             # Brand new session — send welcome and transition
-            session.add_message("assistant", WELCOME_MESSAGE)
+            welcome_msg = get_welcome_message(company_name)
+            session.add_message("assistant", welcome_msg)
             session.add_message("user", message)
 
             # Transition to single conversation stage
