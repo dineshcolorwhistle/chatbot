@@ -1,5 +1,5 @@
 import React, { useState, useRef } from "react";
-import { uploadDocuments } from "../api";
+import { uploadDocuments, extractYoutube } from "../api";
 import "./AdminPage.css";
 
 const MAX_UPLOAD_FILES = parseInt(import.meta.env.VITE_MAX_UPLOAD_FILES || "1", 10);
@@ -7,8 +7,10 @@ const MAX_UPLOAD_FILES = parseInt(import.meta.env.VITE_MAX_UPLOAD_FILES || "1", 
 const AdminPage: React.FC = () => {
   const [namespace, setNamespace] = useState("");
   const [files, setFiles] = useState<File[]>([]);
+  const [youtubeUrls, setYoutubeUrls] = useState("");
+  const [mode, setMode] = useState<"upload" | "youtube">("upload");
   const [isUploading, setIsUploading] = useState(false);
-  const [message, setMessage] = useState<{ text: string; type: "success" | "error" } | null>(null);
+  const [message, setMessage] = useState<{ text: string; type: "success" | "error" | "info" } | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -60,12 +62,18 @@ const AdminPage: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!namespace.trim()) {
+    if (mode === "upload" && !namespace.trim()) {
       setMessage({ text: "Please enter a namespace.", type: "error" });
       return;
     }
-    if (files.length === 0) {
+
+    if (mode === "upload" && files.length === 0) {
       setMessage({ text: "Please select at least one PDF file.", type: "error" });
+      return;
+    }
+
+    if (mode === "youtube" && !youtubeUrls.trim()) {
+      setMessage({ text: "Please enter at least one YouTube URL.", type: "error" });
       return;
     }
 
@@ -73,16 +81,44 @@ const AdminPage: React.FC = () => {
     setMessage(null);
 
     try {
-      const response = await uploadDocuments(namespace, files);
-      setMessage({
-        text: `Success! ${response.message}`,
-        type: "success",
-      });
-      setFiles([]);
-      if (fileInputRef.current) fileInputRef.current.value = "";
+      if (mode === "upload") {
+        const response = await uploadDocuments(namespace, files);
+        setMessage({
+          text: `Success! ${response.message}`,
+          type: "success",
+        });
+        setFiles([]);
+        if (fileInputRef.current) fileInputRef.current.value = "";
+      } else {
+        const urls = youtubeUrls.split("\n").map(u => u.trim()).filter(u => u.length > 0);
+        let successCount = 0;
+        let errors: string[] = [];
+
+        for (const url of urls) {
+          try {
+            await extractYoutube(url);
+            successCount++;
+          } catch (err: any) {
+            errors.push(err.message || "Unknown error");
+          }
+        }
+        
+        if (errors.length > 0) {
+          setMessage({
+            text: `Extracted ${successCount} PDFs. Errors: ${errors.join("; ")}`,
+            type: successCount > 0 ? "info" : "error"
+          });
+        } else {
+          setMessage({
+            text: `Success! Extracted and downloaded ${successCount} PDF(s).`,
+            type: "success",
+          });
+          setYoutubeUrls("");
+        }
+      }
     } catch (error: any) {
       setMessage({
-        text: error.message || "Failed to upload and ingest documents.",
+        text: error.message || "Failed to process request.",
         type: "error",
       });
     } finally {
@@ -99,19 +135,41 @@ const AdminPage: React.FC = () => {
         </div>
 
         <form onSubmit={handleSubmit} className="admin-form">
-          <div className="form-group">
-            <label htmlFor="namespace">Namespace</label>
-            <input
-              type="text"
-              id="namespace"
-              value={namespace}
-              onChange={(e) => setNamespace(e.target.value)}
-              placeholder="e.g., acme-corp"
+          {mode === "upload" && (
+            <div className="form-group">
+              <label htmlFor="namespace">Namespace</label>
+              <input
+                type="text"
+                id="namespace"
+                value={namespace}
+                onChange={(e) => setNamespace(e.target.value)}
+                placeholder="e.g., acme-corp"
+                disabled={isUploading}
+              />
+            </div>
+          )}
+
+          <div className="mode-toggle">
+            <button
+              type="button"
+              className={`toggle-btn ${mode === "upload" ? "active" : ""}`}
+              onClick={() => setMode("upload")}
               disabled={isUploading}
-            />
+            >
+              Upload PDFs
+            </button>
+            <button
+              type="button"
+              className={`toggle-btn ${mode === "youtube" ? "active" : ""}`}
+              onClick={() => setMode("youtube")}
+              disabled={isUploading}
+            >
+              YouTube Extraction
+            </button>
           </div>
 
-          <div className="form-group">
+          {mode === "upload" && (
+            <div className="form-group">
             <label>Upload PDFs</label>
             <div 
               className={`drop-zone ${isDragging ? "dragging" : ""}`}
@@ -140,8 +198,9 @@ const AdminPage: React.FC = () => {
               </div>
             </div>
           </div>
+          )}
 
-          {files.length > 0 && (
+          {mode === "upload" && files.length > 0 && (
             <div className="file-preview-list">
               <h4>Selected Files</h4>
               <ul>
@@ -166,11 +225,29 @@ const AdminPage: React.FC = () => {
             </div>
           )}
 
-          <button type="submit" className="submit-btn" disabled={isUploading || !namespace || files.length === 0}>
+          {mode === "youtube" && (
+            <div className="form-group">
+              <label htmlFor="youtubeUrls">YouTube URLs (one per line)</label>
+              <textarea
+                id="youtubeUrls"
+                value={youtubeUrls}
+                onChange={(e) => setYoutubeUrls(e.target.value)}
+                placeholder="https://www.youtube.com/watch?v=...&#10;https://www.youtube.com/watch?v=..."
+                rows={5}
+                disabled={isUploading}
+                style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid var(--border)", resize: "vertical" }}
+              />
+              <small style={{display: "block", marginTop: "8px", color: "var(--text-light)"}}>
+                Extracts transcripts and downloads them directly as PDF files.
+              </small>
+            </div>
+          )}
+
+          <button type="submit" className="submit-btn" disabled={isUploading || (mode === "upload" && (!namespace || files.length === 0)) || (mode === "youtube" && !youtubeUrls.trim())}>
             {isUploading ? (
               <span className="loading-spinner"></span>
             ) : null}
-            {isUploading ? "Uploading & Ingesting..." : "Upload & Ingest"}
+            {isUploading ? "Processing..." : mode === "upload" ? "Upload & Ingest" : "Extract to PDF"}
           </button>
         </form>
 

@@ -336,6 +336,11 @@ CLOUD_MODEL=gpt-4o-mini
 - `ChatWindow.tsx` refactored for dual-mode (page/widget)
 - `api.ts` with configurable API URL
 
+### Phase 11 — YouTube Integration
+- `services/youtube_service.py` — `yt-dlp` powered video extractor and PDF generator
+- `routes/admin.py` — `POST /api/admin/extract-youtube` endpoint
+- Updated dependencies (`yt-dlp`, `webvtt-py`, `fpdf2`)
+
 ---
 
 ## Phase Progress Tracker
@@ -352,6 +357,7 @@ CLOUD_MODEL=gpt-4o-mini
 | Phase 8 | Frontend | ✅ Complete |
 | Phase 9 | Polish & Docs | ✅ Complete |
 | Phase 10 | Embeddable Widget | ✅ Complete |
+| Phase 11 | YouTube Integration | ✅ Complete |
 
 ---
 

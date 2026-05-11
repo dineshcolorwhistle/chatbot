@@ -15,7 +15,8 @@ Design:
 import logging
 import os
 
-from fastapi import APIRouter, HTTPException, Request, UploadFile, File, Form
+from fastapi import APIRouter, HTTPException, Request, UploadFile, File, Form, BackgroundTasks
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from config import pinecone_config
@@ -78,10 +79,55 @@ class KBClearRequest(BaseModel):
         examples=["colorwhistle", "client-abc"],
     )
 
+class ExtractYoutubeRequest(BaseModel):
+    """Request body for POST /api/admin/extract-youtube."""
+    
+    url: str = Field(
+        ...,
+        description="YouTube URL to extract transcripts from."
+    )
 
 # ============================================
 # Endpoints
 # ============================================
+
+@router.post("/extract-youtube")
+async def extract_youtube_transcripts(request: ExtractYoutubeRequest, background_tasks: BackgroundTasks):
+    """Extract YouTube transcripts and return as a PDF download.
+    
+    This endpoint does NOT save the PDF to the backend. It generates the PDF
+    and returns it as a direct download, then deletes the temporary file.
+    """
+    from services.youtube_service import YouTubeExtractorService
+    
+    url = request.url
+    
+    if not url:
+        raise HTTPException(status_code=400, detail="No URL provided.")
+        
+    video_id = YouTubeExtractorService.extract_video_id(url)
+    if not video_id:
+        raise HTTPException(status_code=400, detail=f"Invalid YouTube URL: {url}")
+        
+    transcript = YouTubeExtractorService.get_transcript(url)
+    if not transcript:
+        raise HTTPException(status_code=400, detail=f"Failed to get transcript for video ID {video_id} (URL: {url}). Make sure subtitles are enabled.")
+        
+    try:
+        file_path = YouTubeExtractorService.save_as_pdf(transcript, video_id)
+        
+        # Add background task to delete the temporary file after sending it
+        background_tasks.add_task(os.remove, file_path)
+        
+        return FileResponse(
+            path=file_path,
+            filename=f"youtube_{video_id}.pdf",
+            media_type="application/pdf"
+        )
+        
+    except Exception as e:
+        logger.error("Failed to save PDF for %s: %s", video_id, e)
+        raise HTTPException(status_code=500, detail=f"Failed to save PDF for video {video_id}: {str(e)}")
 
 @router.post("/ingest", response_model=IngestResponse)
 async def ingest_documents(request: Request, body: IngestRequest | None = None) -> IngestResponse:

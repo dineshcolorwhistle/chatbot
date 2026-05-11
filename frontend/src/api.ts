@@ -321,3 +321,47 @@ export async function uploadDocuments(
 
   return response.json();
 }
+
+/**
+ * Extract YouTube transcript and download as a PDF directly.
+ */
+export async function extractYoutube(
+  url: string
+): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/admin/extract-youtube`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    let errorDetail = `Extraction failed: ${response.status}`;
+    try {
+      const errorJson = JSON.parse(errorText);
+      if (errorJson.detail) errorDetail = errorJson.detail;
+    } catch(e) {}
+    throw new Error(errorDetail);
+  }
+
+  // Get filename from Content-Disposition header if possible, else default
+  let filename = "youtube_transcript.pdf";
+  const contentDisposition = response.headers.get("content-disposition");
+  if (contentDisposition && contentDisposition.includes("filename=")) {
+    const filenameMatch = contentDisposition.match(/filename="?([^"]+)"?/);
+    if (filenameMatch && filenameMatch.length >= 2) {
+      filename = filenameMatch[1];
+    }
+  }
+
+  const blob = await response.blob();
+  const downloadUrl = window.URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.style.display = "none";
+  a.href = downloadUrl;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  window.URL.revokeObjectURL(downloadUrl);
+  document.body.removeChild(a);
+}

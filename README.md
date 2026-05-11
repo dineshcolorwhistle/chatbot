@@ -348,6 +348,8 @@ The complete request lifecycle when a **user sends a message**:
 | GET | `/api/session/{id}` | Get full session state |
 | POST | `/api/reset` | Reset a session |
 | POST | `/api/exit` | Trigger early exit (summary + email in background) |
+| POST | `/api/admin/ingest` | Ingest PDFs from documents directory to Pinecone |
+| POST | `/api/admin/extract-youtube` | Extract YouTube transcripts and save as PDF (no auto-ingest) |
 | GET | `/health` | Health check with LLM provider status |
 
 ## Folder Structure

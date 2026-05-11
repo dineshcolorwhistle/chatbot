@@ -21,3 +21,7 @@ PyMuPDF==1.25.5
 
 # Database connectivity
 motor==3.6.0
+
+# YouTube Extraction and PDF Generation
+youtube-transcript-api==0.6.3
+fpdf2==2.8.2
