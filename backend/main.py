@@ -127,11 +127,12 @@ async def lifespan(app: FastAPI):
                 replace_existing=True,
             )
             scheduler.start()
+            if not scheduler_config.enabled:
+                scheduler.pause_job("daily_summary")
+                logger.info("Daily summary scheduler started but is currently disabled (paused) — cron: '%s'", cron_expr)
+            else:
+                logger.info("Daily summary scheduler started — cron: '%s'", cron_expr)
             app.state.scheduler = scheduler
-            logger.info(
-                "Daily summary scheduler started — cron: '%s'",
-                cron_expr,
-            )
         else:
             logger.warning(
                 "Invalid DAILY_SUMMARY_CRON format: '%s'. Expected 5 fields. Scheduler disabled.",

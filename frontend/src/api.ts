@@ -365,3 +365,35 @@ export async function extractYoutube(
   window.URL.revokeObjectURL(downloadUrl);
   document.body.removeChild(a);
 }
+
+/**
+ * Get the current status of the daily summary cron job.
+ */
+export async function getCronStatus(): Promise<{ enabled: boolean }> {
+  const response = await fetch(`${API_BASE_URL}/admin/cron-status`);
+  if (!response.ok) {
+    throw new Error(`Failed to get cron status: ${response.status}`);
+  }
+  return response.json();
+}
+
+/**
+ * Enable or disable the daily summary cron job.
+ */
+export async function setCronStatus(enabled: boolean): Promise<{ enabled: boolean }> {
+  const response = await fetch(`${API_BASE_URL}/admin/cron-status`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ enabled }),
+  });
+  if (!response.ok) {
+    const errorText = await response.text();
+    let errorDetail = `Failed to set cron status: ${response.status}`;
+    try {
+      const errorJson = JSON.parse(errorText);
+      if (errorJson.detail) errorDetail = errorJson.detail;
+    } catch(e) {}
+    throw new Error(errorDetail);
+  }
+  return response.json();
+}

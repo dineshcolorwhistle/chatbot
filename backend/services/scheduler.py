@@ -49,8 +49,7 @@ from models.schemas import Session
 
 logger = logging.getLogger(__name__)
 
-# Directory for temporary PDF storage (cleaned up after send)
-PDF_OUTPUT_DIR = Path(__file__).parent.parent / "daily_reports"
+logger = logging.getLogger(__name__)
 
 
 # ============================================
@@ -301,8 +300,6 @@ def _send_summary_email(
             "SMTP not configured. Daily summary email logged to console — namespace: %s",
             namespace,
         )
-        # Save PDF to disk for inspection when SMTP is unavailable
-        _save_pdf_to_disk(namespace, pdf_bytes, filename)
         return
 
     try:
@@ -336,25 +333,6 @@ def _send_summary_email(
             namespace,
             e,
         )
-        # Fallback: save PDF to disk
-        _save_pdf_to_disk(namespace, pdf_bytes, filename)
-
-
-def _save_pdf_to_disk(namespace: str, pdf_bytes: bytes, filename: str) -> None:
-    """Save a PDF to the daily_reports directory for manual inspection.
-
-    Args:
-        namespace: Namespace identifier.
-        pdf_bytes: Raw PDF bytes.
-        filename: Desired filename.
-    """
-    try:
-        PDF_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-        filepath = PDF_OUTPUT_DIR / filename
-        filepath.write_bytes(pdf_bytes)
-        logger.info("Daily summary PDF saved: %s", filepath)
-    except OSError as e:
-        logger.error("Failed to save daily summary PDF: %s", e)
 
 
 # ============================================

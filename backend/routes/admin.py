@@ -87,6 +87,15 @@ class ExtractYoutubeRequest(BaseModel):
         description="YouTube URL to extract transcripts from."
     )
 
+
+class CronStatus(BaseModel):
+    """Request/Response body for cron status."""
+
+    enabled: bool = Field(
+        ...,
+        description="Whether the daily summary cron job is enabled."
+    )
+
 # ============================================
 # Endpoints
 # ============================================
@@ -403,3 +412,45 @@ async def trigger_daily_summary(background_tasks: BackgroundTasks):
         "status": "triggered",
         "message": "Daily summary job is running in the background. Check logs for results.",
     }
+
+
+@router.get("/cron-status", response_model=CronStatus)
+async def get_cron_status(request: Request) -> CronStatus:
+    """Get the current enable/disable status of the daily summary cron job."""
+    scheduler = getattr(request.app.state, "scheduler", None)
+    if not scheduler:
+        return CronStatus(enabled=False)
+    
+    job = scheduler.get_job("daily_summary")
+    if not job:
+        return CronStatus(enabled=False)
+        
+    return CronStatus(enabled=job.next_run_time is not None)
+
+
+@router.post("/cron-status", response_model=CronStatus)
+async def set_cron_status(request: Request, body: CronStatus) -> CronStatus:
+    """Enable or disable the daily summary cron job."""
+    from dotenv import set_key
+    import os
+
+    scheduler = getattr(request.app.state, "scheduler", None)
+    if not scheduler:
+        raise HTTPException(status_code=503, detail="Scheduler is not initialized.")
+        
+    job = scheduler.get_job("daily_summary")
+    if not job:
+        raise HTTPException(status_code=503, detail="Daily summary job not found.")
+
+    env_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env")
+    
+    if body.enabled:
+        scheduler.resume_job("daily_summary")
+        set_key(env_path, "DAILY_SUMMARY_ENABLED", "true")
+        logger.info("Daily summary cron job enabled.")
+    else:
+        scheduler.pause_job("daily_summary")
+        set_key(env_path, "DAILY_SUMMARY_ENABLED", "false")
+        logger.info("Daily summary cron job disabled.")
+        
+    return CronStatus(enabled=body.enabled)

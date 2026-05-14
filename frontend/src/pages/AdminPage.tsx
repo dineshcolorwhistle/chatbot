@@ -1,5 +1,5 @@
-import React, { useState, useRef } from "react";
-import { uploadDocuments, extractYoutube } from "../api";
+import React, { useState, useRef, useEffect } from "react";
+import { uploadDocuments, extractYoutube, getCronStatus, setCronStatus } from "../api";
 import "./AdminPage.css";
 
 const MAX_UPLOAD_FILES = parseInt(import.meta.env.VITE_MAX_UPLOAD_FILES || "1", 10);
@@ -8,11 +8,48 @@ const AdminPage: React.FC = () => {
   const [namespace, setNamespace] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [youtubeUrls, setYoutubeUrls] = useState("");
-  const [mode, setMode] = useState<"upload" | "youtube">("upload");
+  const [mode, setMode] = useState<"upload" | "youtube" | "cron">("upload");
   const [isUploading, setIsUploading] = useState(false);
   const [message, setMessage] = useState<{ text: string; type: "success" | "error" | "info" } | null>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [cronEnabled, setCronEnabled] = useState(false);
+  const [isCronLoading, setIsCronLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setMessage(null); // Clear message when switching tabs
+    if (mode === "cron") {
+      setIsCronLoading(true);
+      getCronStatus()
+        .then(res => setCronEnabled(res.enabled))
+        .catch(err => setMessage({ text: err.message, type: "error" }))
+        .finally(() => setIsCronLoading(false));
+    }
+  }, [mode]);
+
+  useEffect(() => {
+    // Auto-dismiss success and info messages after 5 seconds
+    if (message && (message.type === "success" || message.type === "info")) {
+      const timer = setTimeout(() => {
+        setMessage(null);
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [message]);
+
+  const handleCronToggle = async () => {
+    setIsCronLoading(true);
+    setMessage(null);
+    try {
+      const res = await setCronStatus(!cronEnabled);
+      setCronEnabled(res.enabled);
+      setMessage({ text: `Daily summary cron is now ${res.enabled ? "enabled" : "disabled"}.`, type: "success" });
+    } catch (err: any) {
+      setMessage({ text: err.message, type: "error" });
+    } finally {
+      setIsCronLoading(false);
+    }
+  };
 
   const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -166,6 +203,14 @@ const AdminPage: React.FC = () => {
             >
               YouTube Extraction
             </button>
+            <button
+              type="button"
+              className={`toggle-btn ${mode === "cron" ? "active" : ""}`}
+              onClick={() => setMode("cron")}
+              disabled={isUploading}
+            >
+              Daily Summary
+            </button>
           </div>
 
           {mode === "upload" && (
@@ -243,17 +288,61 @@ const AdminPage: React.FC = () => {
             </div>
           )}
 
-          <button type="submit" className="submit-btn" disabled={isUploading || (mode === "upload" && (!namespace || files.length === 0)) || (mode === "youtube" && !youtubeUrls.trim())}>
-            {isUploading ? (
-              <span className="loading-spinner"></span>
-            ) : null}
-            {isUploading ? "Processing..." : mode === "upload" ? "Upload & Ingest" : "Extract to PDF"}
-          </button>
+          {mode === "cron" && (
+            <div className="form-group cron-settings">
+              <label>Daily Summary Cron Job</label>
+              <div style={{ display: "flex", alignItems: "center", gap: "12px", marginTop: "15px", marginBottom: "15px" }}>
+                <span style={{ fontSize: "14px", fontWeight: "600", color: cronEnabled ? "var(--success-color, #00d2a0)" : "var(--text-secondary)" }}>
+                  {isCronLoading ? "Updating..." : cronEnabled ? "ENABLED" : "DISABLED"}
+                </span>
+                <label className="switch">
+                  <input 
+                    type="checkbox" 
+                    checked={cronEnabled} 
+                    onChange={handleCronToggle} 
+                    disabled={isCronLoading || isUploading}
+                  />
+                  <span className="slider"></span>
+                </label>
+              </div>
+              <small style={{display: "block", marginTop: "8px", color: "var(--text-secondary)"}}>
+                When enabled, the system will generate and email a PDF summary of the day's conversations to administrators every night at midnight.
+              </small>
+            </div>
+          )}
+
+          {mode !== "cron" && (
+            <button type="submit" className="submit-btn" disabled={isUploading || (mode === "upload" && (!namespace || files.length === 0)) || (mode === "youtube" && !youtubeUrls.trim())}>
+              {isUploading ? (
+                <span className="loading-spinner"></span>
+              ) : null}
+              {isUploading ? "Processing..." : mode === "upload" ? "Upload & Ingest" : "Extract to PDF"}
+            </button>
+          )}
         </form>
 
         {message && (
-          <div className={`message-box ${message.type}`}>
-            {message.text}
+          <div className={`message-box ${message.type}`} style={{ position: 'relative' }}>
+            <span>{message.text}</span>
+            <button 
+              onClick={() => setMessage(null)} 
+              style={{
+                position: 'absolute',
+                top: '10px',
+                right: '10px',
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                fontSize: '16px',
+                lineHeight: '1',
+                padding: '0 5px',
+                color: 'inherit',
+                opacity: 0.7
+              }}
+              title="Close"
+            >
+              &times;
+            </button>
           </div>
         )}
 
