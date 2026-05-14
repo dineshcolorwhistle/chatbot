@@ -85,6 +85,23 @@ class EmbeddingConfig:
     ollama_base_url: str = "http://localhost:11434"
 
 
+@dataclass(frozen=True)
+class SchedulerConfig:
+    """Scheduler configuration for daily summary reports.
+
+    The cron expression follows standard 5-field format:
+      minute hour day_of_month month day_of_week
+
+    Examples:
+      "0 0 * * *"   — Midnight every day
+      "30 8 * * *"  — 8:30 AM every day
+      "0 18 * * 1-5" — 6 PM on weekdays
+    """
+
+    enabled: bool = False
+    daily_summary_cron: str = "0 0 * * *"
+
+
 def _load_llm_config() -> LLMConfig:
     """Load LLM configuration from environment variables."""
     return LLMConfig(
@@ -151,9 +168,18 @@ def _load_embedding_config() -> EmbeddingConfig:
     )
 
 
+def _load_scheduler_config() -> SchedulerConfig:
+    """Load scheduler configuration from environment variables."""
+    return SchedulerConfig(
+        enabled=os.getenv("DAILY_SUMMARY_ENABLED", "false").lower() == "true",
+        daily_summary_cron=os.getenv("DAILY_SUMMARY_CRON", "0 0 * * *"),
+    )
+
+
 # Singleton instances — import these directly
 llm_config = _load_llm_config()
 app_config = _load_app_config()
 pinecone_config = _load_pinecone_config()
 mongo_config = _load_mongo_config()
 embedding_config = _load_embedding_config()
+scheduler_config = _load_scheduler_config()

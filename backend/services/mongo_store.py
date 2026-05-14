@@ -113,6 +113,45 @@ class MongoSessionStore(BaseSessionStore):
         session_ids = [doc["session_id"] for doc in await cursor.to_list(length=1000)]
         return session_ids
 
+    async def get_widget_sessions_since(self, since: datetime) -> list[Session]:
+        """Retrieve widget-only sessions updated since a given timestamp.
+
+        Widget sessions are identified by having a non-null ``namespace``
+        field, which is set by the embeddable chat widget on external
+        client sites.
+
+        Args:
+            since: Only return sessions with ``updated_at >= since``.
+
+        Returns:
+            List of Session objects matching the criteria.
+        """
+        query = {
+            "namespace": {"$ne": None},
+            "updated_at": {"$gte": since},
+        }
+        cursor = self._collection.find(query)
+        documents = await cursor.to_list(length=5000)
+
+        sessions: list[Session] = []
+        for doc in documents:
+            doc.pop("_id", None)
+            try:
+                sessions.append(Session(**doc))
+            except Exception as e:
+                logger.warning(
+                    "Skipping malformed session document %s: %s",
+                    doc.get("session_id", "unknown"),
+                    e,
+                )
+
+        logger.info(
+            "MongoDB: Found %d widget sessions since %s",
+            len(sessions),
+            since.isoformat(),
+        )
+        return sessions
+
 
 # Singleton instance — import this directly
 session_store = MongoSessionStore()

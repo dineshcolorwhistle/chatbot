@@ -38,3 +38,4 @@ backend/email_logs/
 
 #RAG Documents
 backend/Documents/
+backend/daily_reports/

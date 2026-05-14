@@ -369,3 +369,37 @@ async def clear_kb(request: Request, body: KBClearRequest | None = None) -> KBCl
             status_code=500,
             detail=f"Failed to clear knowledge base: {str(e)}",
         )
+
+
+# ============================================
+# Daily Summary — Manual Trigger
+# ============================================
+
+@router.post("/trigger-daily-summary")
+async def trigger_daily_summary(background_tasks: BackgroundTasks):
+    """Manually trigger the daily conversation summary job.
+
+    Runs the daily summary in a background task so the API
+    responds immediately. Generates per-namespace PDF reports
+    of widget conversations from the last 24 hours and emails
+    them to the configured admin addresses.
+
+    Returns:
+        Status message confirming the job was triggered.
+    """
+    from services.scheduler import execute_daily_summary
+
+    async def _run_and_log():
+        try:
+            result = await execute_daily_summary()
+            logger.info("Manual daily summary completed: %s", result)
+        except Exception as e:
+            logger.error("Manual daily summary failed: %s", e, exc_info=True)
+
+    background_tasks.add_task(_run_and_log)
+
+    logger.info("POST /api/admin/trigger-daily-summary — Job triggered manually")
+    return {
+        "status": "triggered",
+        "message": "Daily summary job is running in the background. Check logs for results.",
+    }

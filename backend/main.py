@@ -15,12 +15,15 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
 
-from config import app_config, pinecone_config
+from config import app_config, pinecone_config, scheduler_config
 from providers.factory import create_llm_provider
 from services.orchestrator import Orchestrator
 from services.mongo_store import session_store
 from services.knowledge_base_factory import KnowledgeBaseFactory
+from services.scheduler import execute_daily_summary
 from routes.chat import router as chat_router
 from routes.admin import router as admin_router
 
@@ -103,6 +106,42 @@ async def lifespan(app: FastAPI):
     app.state.orchestrator = orchestrator
     logger.info("Orchestrator initialized with all agents")
 
+    # Initialize Daily Summary Scheduler
+    scheduler = AsyncIOScheduler()
+    try:
+        cron_expr = scheduler_config.daily_summary_cron
+        parts = cron_expr.strip().split()
+        if len(parts) == 5:
+            trigger = CronTrigger(
+                minute=parts[0],
+                hour=parts[1],
+                day=parts[2],
+                month=parts[3],
+                day_of_week=parts[4],
+            )
+            scheduler.add_job(
+                execute_daily_summary,
+                trigger=trigger,
+                id="daily_summary",
+                name="Daily Conversation Summary Report",
+                replace_existing=True,
+            )
+            scheduler.start()
+            app.state.scheduler = scheduler
+            logger.info(
+                "Daily summary scheduler started — cron: '%s'",
+                cron_expr,
+            )
+        else:
+            logger.warning(
+                "Invalid DAILY_SUMMARY_CRON format: '%s'. Expected 5 fields. Scheduler disabled.",
+                cron_expr,
+            )
+            app.state.scheduler = None
+    except Exception as e:
+        logger.warning("Failed to start daily summary scheduler: %s", e)
+        app.state.scheduler = None
+
     logger.info("Backend is ready — listening on %s:%s", app_config.host, app_config.port)
     logger.info("=" * 60)
 
@@ -110,6 +149,9 @@ async def lifespan(app: FastAPI):
 
     # Shutdown
     logger.info("Shutting down AI Agentic Chatbot Backend")
+    if getattr(app.state, 'scheduler', None):
+        app.state.scheduler.shutdown(wait=False)
+        logger.info("Daily summary scheduler stopped")
 
 
 # Create FastAPI app

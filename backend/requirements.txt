@@ -25,3 +25,9 @@ motor==3.6.0
 # YouTube Extraction and PDF Generation
 youtube-transcript-api==0.6.3
 fpdf2==2.8.2
+
+# Scheduler for daily summary reports
+apscheduler==3.10.4
+
+# PDF generation for daily summary reports
+reportlab==4.4.0
