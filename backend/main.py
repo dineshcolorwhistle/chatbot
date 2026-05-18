@@ -24,8 +24,11 @@ from services.orchestrator import Orchestrator
 from services.mongo_store import session_store
 from services.knowledge_base_factory import KnowledgeBaseFactory
 from services.scheduler import execute_daily_summary
+from services.admin_store import admin_store
+from services.auth_service import AuthService
 from routes.chat import router as chat_router
 from routes.admin import router as admin_router
+from routes.auth import router as auth_router
 
 # Configure logging
 logging.basicConfig(
@@ -106,6 +109,23 @@ async def lifespan(app: FastAPI):
     app.state.orchestrator = orchestrator
     logger.info("Orchestrator initialized with all agents")
 
+    # Initialize Default Admin
+    try:
+        default_email = "dinesh@colorwhistle.com"
+        existing = await admin_store.get_by_email(default_email)
+        if not existing:
+            default_pass_hash = AuthService.get_password_hash("Dinesh@#12312")
+            await admin_store.create_admin(
+                name="Dinesh",
+                email=default_email,
+                password_hash=default_pass_hash
+            )
+            logger.info("Default admin created: %s", default_email)
+        else:
+            logger.info("Default admin already exists: %s", default_email)
+    except Exception as e:
+        logger.error("Failed to initialize default admin: %s", e)
+
     # Initialize Daily Summary Scheduler
     scheduler = AsyncIOScheduler()
     try:
@@ -174,6 +194,7 @@ app.add_middleware(
 
 # Include routes
 app.include_router(chat_router)
+app.include_router(auth_router)
 app.include_router(admin_router)
 
 

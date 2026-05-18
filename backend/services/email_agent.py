@@ -126,6 +126,13 @@ Respond with ONLY the word "LOW" if the user is just browsing, asking general qu
 Do not provide any explanation, just the single word "HIGH" or "LOW".
 """
 
+SUMMARY_SYSTEM_PROMPT = """You are an AI assistant.
+Your task is to summarize the provided conversation history into a single, cohesive paragraph. 
+The length of your summary should be proportional to the length of the conversation.
+Focus on the key requirements, user's business context, and main outcomes.
+Do NOT use bullet points. Write in complete sentences.
+"""
+
 
 class EmailAgent:
     """LLM-powered agent that composes and mock-sends notification emails.
@@ -178,6 +185,30 @@ class EmailAgent:
         except Exception as e:
             logger.error("Intent analysis failed: %s", e)
             return True  # Default to true if fails so we don't drop leads
+
+    async def summarize_conversation(self, session: Session) -> str:
+        """Summarize the conversation history into a paragraph."""
+        history = "\n".join([f"{msg.role}: {msg.content}" for msg in session.conversation_history])
+        
+        # If the conversation is very short, just return a brief static summary
+        if len(session.conversation_history) <= 2:
+            return "The user briefly interacted with the widget but did not have a full conversation."
+
+        messages: list[LLMMessage] = [
+            LLMMessage(role="system", content=SUMMARY_SYSTEM_PROMPT),
+            LLMMessage(role="user", content=f"=== CONVERSATION HISTORY ===\n{history}"),
+        ]
+        
+        try:
+            response = await self._llm.generate(
+                messages=messages,
+                temperature=0.3,
+                max_tokens=300,
+            )
+            return response.content.strip()
+        except Exception as e:
+            logger.error("Summary generation failed: %s", e)
+            return "A conversation took place, but the summary could not be generated."
 
     async def compose_and_send(self, session: Session, is_early_exit: bool = False) -> EmailResult | None:
         """Compose both emails and mock-send them depending on intent and data.
@@ -574,3 +605,30 @@ class EmailAgent:
             body=body,
             email_type="admin_notification",
         )
+
+def send_raw_email(to_email: str, subject: str, html_content: str) -> None:
+    """Send a raw HTML email using the configured SMTP settings."""
+    if not app_config.smtp_host or not app_config.smtp_user:
+        logger.info(
+            "SMTP not configured. Mock email sent to console — to: %s, subject: %s",
+            to_email,
+            subject,
+        )
+        return
+
+    try:
+        msg = MIMEMultipart()
+        msg['From'] = app_config.smtp_from
+        msg['To'] = to_email
+        msg['Subject'] = subject
+        msg.attach(MIMEText(html_content, 'html'))
+
+        server = smtplib.SMTP(app_config.smtp_host, app_config.smtp_port)
+        server.starttls()
+        server.login(app_config.smtp_user, app_config.smtp_password)
+        server.send_message(msg)
+        server.quit()
+        
+        logger.info("SMTP email delivered — to: %s", to_email)
+    except Exception as e:
+        logger.error("Failed to send SMTP email — to: %s, error: %s", to_email, e)

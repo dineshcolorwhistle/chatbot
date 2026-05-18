@@ -263,6 +263,18 @@ class Session(BaseModel):
 # API Request Models
 # ============================================
 
+class LoginRequest(BaseModel):
+    email: str = Field(..., description="Admin email")
+    password: str = Field(..., description="Admin password")
+
+class CreateAdminRequest(BaseModel):
+    name: str = Field(..., description="Admin name")
+    email: str = Field(..., description="Admin email")
+
+class SetPasswordRequest(BaseModel):
+    token: str = Field(..., description="Password setup token (JWT)")
+    password: str = Field(..., description="New password")
+
 class ChatRequest(BaseModel):
     """Request body for POST /api/chat.
 
@@ -312,6 +324,20 @@ class ResetRequest(BaseModel):
 # ============================================
 # API Response Models
 # ============================================
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+
+class AdminResponse(BaseModel):
+    id: str = Field(alias="_id")
+    name: str
+    email: str
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        populate_by_name = True
 
 class ChatResponse(BaseModel):
     """Response body for POST /api/chat.

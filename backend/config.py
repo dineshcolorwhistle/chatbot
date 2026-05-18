@@ -54,6 +54,9 @@ class AppConfig:
     smtp_user: str = ""
     smtp_password: str = ""
     smtp_from: str = "noreply@colorwhistle.com"
+    jwt_secret: str = "super-secret-key-change-in-production"
+    jwt_algorithm: str = "HS256"
+    frontend_url: str = "http://localhost:5173"
 
 
 @dataclass(frozen=True)
@@ -138,6 +141,9 @@ def _load_app_config() -> AppConfig:
         smtp_user=os.getenv("SMTP_USER", ""),
         smtp_password=os.getenv("SMTP_PASSWORD", ""),
         smtp_from=os.getenv("SMTP_FROM", "noreply@colorwhistle.com"),
+        jwt_secret=os.getenv("JWT_SECRET", "super-secret-key-change-in-production"),
+        jwt_algorithm=os.getenv("JWT_ALGORITHM", "HS256"),
+        frontend_url=os.getenv("FRONTEND_URL", "http://localhost:5173"),
     )
 
 

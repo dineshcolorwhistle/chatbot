@@ -1,20 +1,21 @@
 import asyncio
-import sys
+from motor.motor_asyncio import AsyncIOMotorClient
+import os
+from dotenv import load_dotenv
 
-# Windows console encoding fix
-sys.stdout.reconfigure(encoding='utf-8')
-
-from services.mongo_store import session_store
+load_dotenv()
 
 async def main():
-    sessions = await session_store.list_sessions()
-    print(f"Total sessions: {len(sessions)}")
+    uri = os.getenv("MONGODB_URI")
+    print(f"URI: {uri[:30]}...")
+    client = AsyncIOMotorClient(uri)
+    db = client["chatbot_sessions"]
+    collection = db["admins"]
     
-    for session_id in sessions:
-        session = await session_store.get(session_id)
-        if session:
-            print(f"\n--- Session: {session_id} ---")
-            print(session.model_dump_json(indent=2))
+    admins = await collection.find({}).to_list(100)
+    print(f"Found {len(admins)} admins:")
+    for admin in admins:
+        print(f"- {admin.get('email')} : {admin.get('name')}")
 
 if __name__ == "__main__":
     asyncio.run(main())

@@ -60,6 +60,7 @@ def _build_namespace_pdf(
     namespace: str,
     sessions: list[Session],
     intents: dict[str, str],
+    summaries: dict[str, str],
     report_date: str,
 ) -> bytes:
     """Generate a PDF report for a single namespace.
@@ -68,6 +69,7 @@ def _build_namespace_pdf(
         namespace: The namespace identifier (e.g., 'eduwhistle').
         sessions: List of sessions belonging to this namespace.
         intents: Mapping of session_id -> intent string ('HIGH' / 'LOW').
+        summaries: Mapping of session_id -> summary string.
         report_date: Human-readable date string for the report header.
 
     Returns:
@@ -85,68 +87,74 @@ def _build_namespace_pdf(
 
     styles = getSampleStyleSheet()
 
-    # Custom styles
+    # Modern styles
     title_style = ParagraphStyle(
         "ReportTitle",
         parent=styles["Heading1"],
-        fontSize=18,
-        textColor=colors.HexColor("#1a1a2e"),
-        spaceAfter=12,
+        fontName="Helvetica-Bold",
+        fontSize=24,
+        textColor=colors.HexColor("#0f172a"),
+        spaceAfter=8,
     )
     subtitle_style = ParagraphStyle(
         "ReportSubtitle",
         parent=styles["Normal"],
+        fontName="Helvetica",
         fontSize=11,
-        textColor=colors.HexColor("#555555"),
-        spaceAfter=20,
+        textColor=colors.HexColor("#64748b"),
+        spaceAfter=24,
     )
     section_heading = ParagraphStyle(
         "SectionHeading",
         parent=styles["Heading2"],
-        fontSize=13,
-        textColor=colors.HexColor("#0f3460"),
-        spaceBefore=14,
-        spaceAfter=8,
-        borderWidth=1,
-        borderColor=colors.HexColor("#e0e0e0"),
-        borderPadding=(0, 0, 4, 0),
+        fontName="Helvetica-Bold",
+        fontSize=14,
+        textColor=colors.HexColor("#0f172a"),
+        spaceBefore=20,
+        spaceAfter=12,
+        borderPadding=(8, 12, 8, 12),
+        backColor=colors.HexColor("#f1f5f9"),
     )
     label_style = ParagraphStyle(
         "FieldLabel",
         parent=styles["Normal"],
-        fontSize=10,
-        textColor=colors.HexColor("#333333"),
         fontName="Helvetica-Bold",
+        fontSize=10,
+        textColor=colors.HexColor("#475569"),
     )
     value_style = ParagraphStyle(
         "FieldValue",
         parent=styles["Normal"],
+        fontName="Helvetica",
         fontSize=10,
-        textColor=colors.HexColor("#444444"),
+        textColor=colors.HexColor("#334155"),
         leading=14,
     )
     conversation_style = ParagraphStyle(
         "ConversationText",
         parent=styles["Normal"],
-        fontSize=9,
-        textColor=colors.HexColor("#333333"),
-        leading=13,
-        leftIndent=10,
-        rightIndent=10,
+        fontName="Helvetica",
+        fontSize=10,
+        textColor=colors.HexColor("#1e293b"),
+        leading=16,
+        borderPadding=(12, 12, 12, 12),
+        backColor=colors.HexColor("#f8fafc"),
+        borderColor=colors.HexColor("#e2e8f0"),
+        borderWidth=1,
     )
     intent_high_style = ParagraphStyle(
         "IntentHigh",
         parent=styles["Normal"],
-        fontSize=11,
-        textColor=colors.HexColor("#27ae60"),
         fontName="Helvetica-Bold",
+        fontSize=10,
+        textColor=colors.HexColor("#059669"),
     )
     intent_low_style = ParagraphStyle(
         "IntentLow",
         parent=styles["Normal"],
-        fontSize=11,
-        textColor=colors.HexColor("#e74c3c"),
         fontName="Helvetica-Bold",
+        fontSize=10,
+        textColor=colors.HexColor("#dc2626"),
     )
 
     elements: list = []
@@ -165,10 +173,10 @@ def _build_namespace_pdf(
     separator_data = [["" ]]
     separator_table = Table(separator_data, colWidths=[doc.width])
     separator_table.setStyle(TableStyle([
-        ("LINEBELOW", (0, 0), (-1, 0), 1, colors.HexColor("#e0e0e0")),
+        ("LINEBELOW", (0, 0), (-1, 0), 1, colors.HexColor("#e2e8f0")),
     ]))
     elements.append(separator_table)
-    elements.append(Spacer(1, 10))
+    elements.append(Spacer(1, 12))
 
     for idx, session in enumerate(sessions, 1):
         pi = session.collected_data.personal_info
@@ -204,33 +212,26 @@ def _build_namespace_pdf(
         info_table = Table(info_data, colWidths=[100, doc.width - 120])
         info_table.setStyle(TableStyle([
             ("VALIGN", (0, 0), (-1, -1), "TOP"),
-            ("TOPPADDING", (0, 0), (-1, -1), 3),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+            ("TOPPADDING", (0, 0), (-1, -1), 4),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
         ]))
         elements.append(info_table)
-        elements.append(Spacer(1, 8))
+        elements.append(Spacer(1, 12))
 
         # Conversation transcript
-        elements.append(Paragraph("Conversation:", label_style))
-        elements.append(Spacer(1, 4))
-
-        for msg in session.conversation_history:
-            role_label = "🤖 Assistant" if msg.role == "assistant" else "👤 User"
-            # Escape HTML entities in message content for ReportLab
-            safe_content = (
-                msg.content
-                .replace("&", "&amp;")
-                .replace("<", "&lt;")
-                .replace(">", "&gt;")
-            )
-            # Wrap long messages
-            wrapped = textwrap.fill(safe_content, width=90)
-            wrapped_html = wrapped.replace("\n", "<br/>")
-            elements.append(Paragraph(
-                f"<b>{role_label}:</b> {wrapped_html}",
-                conversation_style,
-            ))
-            elements.append(Spacer(1, 3))
+        elements.append(Paragraph("Conversation Summary:", label_style))
+        elements.append(Spacer(1, 16))
+        
+        summary_text = summaries.get(session.session_id, "No summary available.")
+        safe_summary = (
+            summary_text
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+        )
+        wrapped_html = safe_summary.replace("\n", "<br/>")
+        elements.append(Paragraph(wrapped_html, conversation_style))
+        elements.append(Spacer(1, 16))
 
         # Entry separator
         elements.append(Spacer(1, 6))
@@ -392,22 +393,26 @@ async def execute_daily_summary() -> dict:
         list(namespace_groups.keys()),
     )
 
-    # 4. Analyze intent for all sessions
+    # 4. Analyze intent and generate summary for all sessions
     llm_provider = create_llm_provider()
     email_agent = EmailAgent(llm_provider, admin_emails=app_config.admin_emails)
 
     intents: dict[str, str] = {}
+    summaries: dict[str, str] = {}
     for session in sessions:
         try:
             is_high = await email_agent.analyze_intent(session)
             intents[session.session_id] = "HIGH" if is_high else "LOW"
+            summary = await email_agent.summarize_conversation(session)
+            summaries[session.session_id] = summary
         except Exception as e:
             logger.warning(
-                "Intent analysis failed for session %s: %s",
+                "Intent or summary analysis failed for session %s: %s",
                 session.session_id,
                 e,
             )
             intents[session.session_id] = "N/A"
+            summaries[session.session_id] = "Summary unavailable due to error."
 
     # 5. Generate PDF and send email for each namespace
     results: dict[str, dict] = {}
@@ -417,6 +422,7 @@ async def execute_daily_summary() -> dict:
                 namespace=namespace,
                 sessions=ns_sessions,
                 intents=intents,
+                summaries=summaries,
                 report_date=report_date,
             )
 

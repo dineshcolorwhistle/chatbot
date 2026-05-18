@@ -14,17 +14,19 @@ Design:
 
 import logging
 import os
+import shutil
 
-from fastapi import APIRouter, HTTPException, Request, UploadFile, File, Form, BackgroundTasks
+from fastapi import APIRouter, HTTPException, Request, UploadFile, File, Form, BackgroundTasks, Depends
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from config import pinecone_config
+from routes.auth import get_current_admin
 
 logger = logging.getLogger(__name__)
 
 # Create router with /api/admin prefix
-router = APIRouter(prefix="/api/admin", tags=["Knowledge Base Admin"])
+router = APIRouter(prefix="/api/admin", tags=["Knowledge Base Admin"], dependencies=[Depends(get_current_admin)])
 
 
 # ============================================
@@ -85,6 +87,15 @@ class ExtractYoutubeRequest(BaseModel):
     url: str = Field(
         ...,
         description="YouTube URL to extract transcripts from."
+    )
+
+
+class NamespaceDeleteRequest(BaseModel):
+    """Request body for DELETE /api/admin/namespace/{namespace}."""
+
+    delete_local_files: bool = Field(
+        True,
+        description="Whether to also delete local documents/{namespace}/ folder.",
     )
 
 
@@ -377,6 +388,158 @@ async def clear_kb(request: Request, body: KBClearRequest | None = None) -> KBCl
         raise HTTPException(
             status_code=500,
             detail=f"Failed to clear knowledge base: {str(e)}",
+        )
+
+
+# ============================================
+# Namespace Management
+# ============================================
+
+@router.get("/namespaces")
+async def list_namespaces(request: Request):
+    """List all Pinecone namespaces with their vector counts.
+
+    Also includes whether a local documents directory exists for each namespace.
+
+    Returns:
+        List of namespace objects with name, vector_count, and has_local_docs.
+    """
+    knowledge_base = getattr(request.app.state, "knowledge_base", None)
+
+    if not knowledge_base:
+        raise HTTPException(
+            status_code=503,
+            detail="Knowledge base is not initialized.",
+        )
+
+    try:
+        stats = await knowledge_base.get_index_stats()
+        namespaces_raw = stats.get("namespaces", {})
+
+        backend_root = os.path.dirname(os.path.dirname(__file__))
+        documents_root = os.path.join(backend_root, "documents")
+
+        namespaces = []
+        for ns_name, ns_info in namespaces_raw.items():
+            # ns_info is a NamespaceSummary object — extract vector_count
+            vector_count = getattr(ns_info, "vector_count", 0)
+            local_dir = os.path.join(documents_root, ns_name)
+            has_local_docs = os.path.isdir(local_dir)
+
+            namespaces.append({
+                "name": ns_name,
+                "vector_count": vector_count,
+                "has_local_docs": has_local_docs,
+            })
+
+        # Sort alphabetically
+        namespaces.sort(key=lambda x: x["name"])
+
+        return {
+            "namespaces": namespaces,
+            "total_vectors": stats.get("total_vectors", 0),
+            "index_name": stats.get("index_name", "unknown"),
+        }
+
+    except Exception as e:
+        logger.error("Failed to list namespaces: %s", e)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to list namespaces: {str(e)}",
+        )
+
+
+@router.delete("/namespace/{namespace}")
+async def delete_namespace(
+    namespace: str,
+    request: Request,
+    body: NamespaceDeleteRequest | None = None,
+):
+    """Delete an entire namespace from Pinecone.
+
+    This removes ALL vectors within the specified namespace.
+    Pinecone automatically removes empty namespaces from the index stats.
+
+    Optionally also deletes the local documents/{namespace}/ directory.
+
+    Args:
+        namespace: The namespace to delete (path parameter).
+        body: Optional request body with delete_local_files flag.
+
+    Returns:
+        Confirmation of the deletion.
+
+    Raises:
+        HTTPException 503: If knowledge base is not initialized.
+        HTTPException 400: If namespace is empty.
+        HTTPException 500: If deletion fails.
+    """
+    knowledge_base = getattr(request.app.state, "knowledge_base", None)
+
+    if not knowledge_base:
+        raise HTTPException(
+            status_code=503,
+            detail="Knowledge base is not initialized.",
+        )
+
+    namespace = namespace.strip()
+    if not namespace:
+        raise HTTPException(
+            status_code=400,
+            detail="Namespace cannot be empty.",
+        )
+
+    delete_local = body.delete_local_files if body else True
+
+    try:
+        # 1. Clear all vectors from the namespace in Pinecone
+        success = await knowledge_base.clear_namespace(namespace)
+
+        if not success:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to delete vectors from namespace '{namespace}'.",
+            )
+
+        # 2. Optionally delete local documents folder
+        local_deleted = False
+        backend_root = os.path.dirname(os.path.dirname(__file__))
+        namespace_dir = os.path.join(backend_root, "documents", namespace)
+
+        if delete_local and os.path.isdir(namespace_dir):
+            shutil.rmtree(namespace_dir)
+            local_deleted = True
+            logger.info(
+                "Deleted local documents directory: %s", namespace_dir
+            )
+
+        logger.info(
+            "Namespace '%s' fully deleted (vectors: cleared, local_docs: %s)",
+            namespace,
+            "deleted" if local_deleted else "skipped/not_found",
+        )
+
+        return {
+            "success": True,
+            "namespace": namespace,
+            "vectors_cleared": True,
+            "local_files_deleted": local_deleted,
+            "message": (
+                f"Namespace '{namespace}' has been deleted. "
+                f"All vectors removed from Pinecone."
+                + (f" Local documents folder also removed." if local_deleted else "")
+            ),
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(
+            "Failed to delete namespace '%s': %s", namespace, e, exc_info=True
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to delete namespace '{namespace}': {str(e)}",
         )
 
 

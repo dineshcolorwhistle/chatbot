@@ -8,6 +8,8 @@
 import { useState, useEffect } from "react";
 import ChatPage from "./pages/ChatPage";
 import AdminPage from "./pages/AdminPage";
+import LoginPage from "./pages/LoginPage";
+import SetPasswordPage from "./pages/SetPasswordPage";
 
 function App() {
   const [currentPath, setCurrentPath] = useState(window.location.pathname);
@@ -22,6 +24,14 @@ function App() {
 
   if (currentPath === "/admin") {
     return <AdminPage />;
+  }
+  
+  if (currentPath === "/admin/login") {
+    return <LoginPage />;
+  }
+  
+  if (currentPath.startsWith("/set-password")) {
+    return <SetPasswordPage />;
   }
 
   return <ChatPage />;

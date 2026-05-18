@@ -116,8 +116,39 @@ export interface HealthResponse {
 // Internal Helpers
 // ============================================
 
+export function getAuthToken(): string | null {
+  return localStorage.getItem("admin_token");
+}
+
+export function setAuthToken(token: string) {
+  localStorage.setItem("admin_token", token);
+}
+
+export function removeAuthToken() {
+  localStorage.removeItem("admin_token");
+}
+
+async function adminFetch(
+  url: string,
+  options: RequestInit = {}
+): Promise<Response> {
+  const token = getAuthToken();
+  const headers = new Headers(options.headers || {});
+  if (token) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
+  
+  const response = await fetch(url, { ...options, headers });
+  if (response.status === 401) {
+    removeAuthToken();
+    window.location.href = "/admin/login";
+  }
+  return response;
+}
+
 /**
  * Wraps a fetch call with timeout, network error handling, and retry logic.
+
  *
  * Converts cryptic browser errors like "TypeError: Failed to fetch" into
  * clear, actionable messages the user can understand.
@@ -126,9 +157,15 @@ async function safeFetch(
   url: string,
   options: RequestInit = {},
   retries = 1,
-  timeoutMs = DEFAULT_TIMEOUT_MS
+  timeoutMs = 120_000
 ): Promise<Response> {
   let lastError: Error | null = null;
+  
+  const token = getAuthToken();
+  const headers = new Headers(options.headers || {});
+  if (token) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
 
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
@@ -137,10 +174,17 @@ async function safeFetch(
 
       const response = await fetch(url, {
         ...options,
+        headers,
         signal: controller.signal,
       });
 
       clearTimeout(timeoutId);
+      
+      if (response.status === 401 && url.includes("/admin")) {
+        removeAuthToken();
+        window.location.href = "/admin/login";
+      }
+      
       return response;
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err));
@@ -309,9 +353,16 @@ export async function uploadDocuments(
     formData.append("files", files[i]);
   }
 
+  const token = getAuthToken();
+  const headers = new Headers();
+  if (token) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
+  
   const response = await fetch(`${API_BASE_URL}/admin/upload`, {
     method: "POST",
-    body: formData, // No Content-Type header; fetch sets it with the boundary automatically
+    headers,
+    body: formData,
   });
 
   if (!response.ok) {
@@ -328,11 +379,11 @@ export async function uploadDocuments(
 export async function extractYoutube(
   url: string
 ): Promise<void> {
-  const response = await fetch(`${API_BASE_URL}/admin/extract-youtube`, {
+  const response = await safeFetch(`${API_BASE_URL}/admin/extract-youtube`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ url }),
-  });
+  }, 0);
 
   if (!response.ok) {
     const errorText = await response.text();
@@ -366,11 +417,66 @@ export async function extractYoutube(
   document.body.removeChild(a);
 }
 
+// ============================================
+// Namespace Management
+// ============================================
+
+export interface NamespaceInfo {
+  name: string;
+  vector_count: number;
+  has_local_docs: boolean;
+}
+
+export interface NamespacesResponse {
+  namespaces: NamespaceInfo[];
+  total_vectors: number;
+  index_name: string;
+}
+
+export interface NamespaceDeleteResponse {
+  success: boolean;
+  namespace: string;
+  vectors_cleared: boolean;
+  local_files_deleted: boolean;
+  message: string;
+}
+
+/**
+ * List all Pinecone namespaces with their vector counts.
+ */
+export async function listNamespaces(): Promise<NamespacesResponse> {
+  const response = await safeFetch(`${API_BASE_URL}/admin/namespaces`);
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.detail || `Failed to list namespaces: ${response.status}`);
+  }
+  return response.json();
+}
+
+/**
+ * Delete an entire namespace from Pinecone (and optionally local files).
+ */
+export async function deleteNamespace(
+  namespace: string,
+  deleteLocalFiles: boolean = true
+): Promise<NamespaceDeleteResponse> {
+  const response = await safeFetch(`${API_BASE_URL}/admin/namespace/${encodeURIComponent(namespace)}`, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ delete_local_files: deleteLocalFiles }),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.detail || `Failed to delete namespace: ${response.status}`);
+  }
+  return response.json();
+}
+
 /**
  * Get the current status of the daily summary cron job.
  */
 export async function getCronStatus(): Promise<{ enabled: boolean }> {
-  const response = await fetch(`${API_BASE_URL}/admin/cron-status`);
+  const response = await safeFetch(`${API_BASE_URL}/admin/cron-status`);
   if (!response.ok) {
     throw new Error(`Failed to get cron status: ${response.status}`);
   }
@@ -381,11 +487,11 @@ export async function getCronStatus(): Promise<{ enabled: boolean }> {
  * Enable or disable the daily summary cron job.
  */
 export async function setCronStatus(enabled: boolean): Promise<{ enabled: boolean }> {
-  const response = await fetch(`${API_BASE_URL}/admin/cron-status`, {
+  const response = await safeFetch(`${API_BASE_URL}/admin/cron-status`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ enabled }),
-  });
+  }, 0);
   if (!response.ok) {
     const errorText = await response.text();
     let errorDetail = `Failed to set cron status: ${response.status}`;
@@ -394,6 +500,56 @@ export async function setCronStatus(enabled: boolean): Promise<{ enabled: boolea
       if (errorJson.detail) errorDetail = errorJson.detail;
     } catch(e) {}
     throw new Error(errorDetail);
+  }
+}
+
+// ============================================
+// Auth Management
+// ============================================
+
+export async function login(email: string, password: string): Promise<{ access_token: string }> {
+  const response = await fetch(`${API_BASE_URL}/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.detail || "Login failed");
+  }
+  return response.json();
+}
+
+export async function createAdmin(name: string, email: string): Promise<any> {
+  const response = await adminFetch(`${API_BASE_URL}/auth/create-admin`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, email }),
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.detail || "Failed to create admin");
+  }
+  return response.json();
+}
+
+export async function setPassword(token: string, password: string): Promise<{ message: string }> {
+  const response = await fetch(`${API_BASE_URL}/auth/set-password`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token, password }),
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.detail || "Failed to set password");
+  }
+  return response.json();
+}
+
+export async function listAdmins(): Promise<any[]> {
+  const response = await adminFetch(`${API_BASE_URL}/auth/list`);
+  if (!response.ok) {
+    throw new Error("Failed to list admins");
   }
   return response.json();
 }

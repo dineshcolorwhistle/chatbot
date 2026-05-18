@@ -31,3 +31,8 @@ apscheduler==3.10.4
 
 # PDF generation for daily summary reports
 reportlab==4.4.0
+
+# Authentication
+passlib==1.7.4
+bcrypt==5.0.0
+pyjwt==2.12.1
