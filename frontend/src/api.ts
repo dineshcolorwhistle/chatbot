@@ -157,7 +157,7 @@ async function safeFetch(
   url: string,
   options: RequestInit = {},
   retries = 1,
-  timeoutMs = 120_000
+  timeoutMs = DEFAULT_TIMEOUT_MS
 ): Promise<Response> {
   let lastError: Error | null = null;
   
@@ -501,6 +501,7 @@ export async function setCronStatus(enabled: boolean): Promise<{ enabled: boolea
     } catch(e) {}
     throw new Error(errorDetail);
   }
+  return response.json();
 }
 
 // ============================================

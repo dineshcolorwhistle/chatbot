@@ -1,4 +1,4 @@
-import { useState, FormEvent, useEffect } from "react";
+import { useState, type FormEvent, useEffect } from "react";
 import { setPassword } from "../api";
 import "./LoginPage.css";
 
