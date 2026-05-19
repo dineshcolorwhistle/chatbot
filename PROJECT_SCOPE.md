@@ -308,9 +308,9 @@ Each agent receives a carefully crafted system prompt:
 3. ✅ Use abstract provider interface for LLM swappability
 4. ✅ No business logic in routes — delegate to orchestrator/services
 5. ✅ Code must be clean, modular, and scalable
-6. ❌ Do NOT use production DB — in-memory sessions only
+6. ✅ Do NOT use production DB — in-memory sessions only
 7. ❌ Do NOT use Docker — local dev only
-7. ❌ Do NOT create widget version yet
+7. ✅ Do NOT create widget version yet
 
 ---
 

@@ -57,6 +57,7 @@ class AppConfig:
     jwt_secret: str = "super-secret-key-change-in-production"
     jwt_algorithm: str = "HS256"
     frontend_url: str = "http://localhost:5173"
+    admin_idle_timeout_minutes: int = 30
 
 
 @dataclass(frozen=True)
@@ -144,6 +145,7 @@ def _load_app_config() -> AppConfig:
         jwt_secret=os.getenv("JWT_SECRET", "super-secret-key-change-in-production"),
         jwt_algorithm=os.getenv("JWT_ALGORITHM", "HS256"),
         frontend_url=os.getenv("FRONTEND_URL", "http://localhost:5173"),
+        admin_idle_timeout_minutes=int(os.getenv("ADMIN_IDLE_TIMEOUT_MINUTES", "30")),
     )
 
 

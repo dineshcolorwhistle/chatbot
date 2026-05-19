@@ -122,10 +122,12 @@ export function getAuthToken(): string | null {
 
 export function setAuthToken(token: string) {
   localStorage.setItem("admin_token", token);
+  localStorage.setItem("admin_last_activity", Date.now().toString());
 }
 
 export function removeAuthToken() {
   localStorage.removeItem("admin_token");
+  localStorage.removeItem("admin_last_activity");
 }
 
 async function adminFetch(

@@ -35,7 +35,49 @@ const AdminPage: React.FC = () => {
     const token = getAuthToken();
     if (!token) {
       window.location.href = "/admin/login";
+      return;
     }
+
+    const timeoutMinutes = parseInt(import.meta.env.VITE_ADMIN_IDLE_TIMEOUT_MINUTES || "30", 10);
+    const timeoutMs = timeoutMinutes * 60 * 1000;
+
+    const checkIdleStatus = () => {
+      const lastActiveStr = localStorage.getItem("admin_last_activity");
+      if (lastActiveStr) {
+        const lastActive = parseInt(lastActiveStr, 10);
+        if (Date.now() - lastActive > timeoutMs) {
+          removeAuthToken();
+          window.location.href = "/admin/login";
+        }
+      }
+    };
+
+    // Check immediately on load
+    checkIdleStatus();
+
+    // Use a throttled updater to avoid excessive localStorage writes
+    let lastWrite = Date.now();
+    const updateActivity = () => {
+      const now = Date.now();
+      if (now - lastWrite > 1000) { // Throttle to 1 write per second
+        localStorage.setItem("admin_last_activity", now.toString());
+        lastWrite = now;
+      }
+    };
+
+    const activityEvents = ["mousedown", "mousemove", "keydown", "scroll", "touchstart"];
+    activityEvents.forEach(event => {
+      window.addEventListener(event, updateActivity, { passive: true });
+    });
+
+    const intervalId = setInterval(checkIdleStatus, 30000); // Check every 30 seconds
+
+    return () => {
+      activityEvents.forEach(event => {
+        window.removeEventListener(event, updateActivity);
+      });
+      clearInterval(intervalId);
+    };
   }, []);
 
   const fetchNamespaces = useCallback(async () => {
