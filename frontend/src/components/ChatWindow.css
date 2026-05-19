@@ -156,8 +156,15 @@
 }
 
 @keyframes stagePulse {
-  0%, 100% { box-shadow: 0 0 0 1px var(--accent-border); }
-  50% { box-shadow: 0 0 0 2px var(--accent-border), 0 0 12px var(--accent-glow); }
+
+  0%,
+  100% {
+    box-shadow: 0 0 0 1px var(--accent-border);
+  }
+
+  50% {
+    box-shadow: 0 0 0 2px var(--accent-border), 0 0 12px var(--accent-glow);
+  }
 }
 
 /* ---- Messages Area ---- */
@@ -223,13 +230,27 @@
 }
 
 @keyframes float {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-8px); }
+
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(-8px);
+  }
 }
 
 @keyframes fadeInUp {
-  from { opacity: 0; transform: translateY(12px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 /* ---- Message Bubbles ---- */
@@ -250,8 +271,15 @@
 }
 
 @keyframes messageSlide {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .avatar {
@@ -353,8 +381,16 @@
 }
 
 @keyframes typingBounce {
-  0%, 60%, 100% { transform: translateY(0); }
-  30% { transform: translateY(-6px); }
+
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+  }
+
+  30% {
+    transform: translateY(-6px);
+  }
 }
 
 /* ---- Error Banner ---- */
@@ -386,8 +422,15 @@
 }
 
 @keyframes slideDown {
-  from { opacity: 0; transform: translateY(-100%); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(-100%);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 /* ---- Collected Data Panel ---- */
@@ -527,7 +570,9 @@
 }
 
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .input-hint {

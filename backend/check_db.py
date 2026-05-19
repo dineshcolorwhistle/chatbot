@@ -1,21 +1,18 @@
-import asyncio
-from motor.motor_asyncio import AsyncIOMotorClient
 import os
+from pymongo import MongoClient
 from dotenv import load_dotenv
+import json
+from bson import json_util
 
 load_dotenv()
 
-async def main():
-    uri = os.getenv("MONGODB_URI")
-    print(f"URI: {uri[:30]}...")
-    client = AsyncIOMotorClient(uri)
-    db = client["chatbot_sessions"]
-    collection = db["admins"]
-    
-    admins = await collection.find({}).to_list(100)
-    print(f"Found {len(admins)} admins:")
-    for admin in admins:
-        print(f"- {admin.get('email')} : {admin.get('name')}")
+uri = os.getenv("MONGODB_URI")
+client = MongoClient(uri)
+db = client["chatbot_sessions"]
+collection = db["chatbot"]
 
-if __name__ == "__main__":
-    asyncio.run(main())
+# Get the latest session
+latest_session = collection.find().sort("updated_at", -1).limit(1)
+
+for session in latest_session:
+    print(json.dumps(session, default=json_util.default, indent=2))
